@@ -36,10 +36,14 @@
         <!-- 悬浮操作栏 -->
         <div class="card-actions">
           <button class="action-btn chat-btn" @click="goToChat(task.id)">
-            💬 开始对话
+            💬 对话
           </button>
           <button class="action-btn edit-btn" @click="goToEditor(task.id)">
-            ⚙️ 编辑节点
+            ⚙️ 编辑
+          </button>
+          <!-- 🌟 新增的复制按钮 -->
+          <button class="action-btn copy-btn" @click="duplicateWorkflow(task)">
+            📑 复制
           </button>
         </div>
       </div>
@@ -65,6 +69,28 @@ onMounted(() => {
 const createNewTask = () => router.push('/editor')
 const goToChat = (taskId) => router.push(`/chat/${taskId}`)
 const goToEditor = (taskId) => router.push(`/editor/${taskId}`)
+
+
+// === 复制整个工作流（拓扑结构）逻辑 ===
+const duplicateWorkflow = (originalTask) => {
+  // 生成一个新的假 ID
+  const newId = 'task_' + Math.random().toString(36).substr(2, 6)
+  
+  // 深拷贝原来的任务信息，并改个名字
+  const newTask = {
+    ...originalTask,
+    id: newId,
+    name: originalTask.name + ' (副本)',
+    // 假设后端的文件目录也是通过追加副本生成的
+    path: originalTask.path + '_copy',
+  }
+
+  // 把新任务加入列表（放到最前面）
+  tasks.value.unshift(newTask)
+
+  // 提示用户
+  alert(`已成功复制工作流：${originalTask.name}，新名称为：${newTask.name}！\n(将来这里会通知后端把对应的节点拓扑 JSON 配置文件也复制一份)`)
+}
 </script>
 
 <style scoped>
@@ -227,7 +253,10 @@ const goToEditor = (taskId) => router.push(`/editor/${taskId}`)
   color: var(--el-color-primary);
 }
 
-.chat-btn {
+.chat-btn, .edit-btn {
   border-right: 1px solid var(--el-border-color-lighter);
+}
+.copy-btn:hover {
+  color: var(--el-color-success); /* 给复制按钮一个不同的 Hover 颜色 */
 }
 </style>
