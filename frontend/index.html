@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Agent Workflow 控制台</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
+</head>
+<body>
+    <nav>
+        <button onclick="switchView('tasks')">任务列表</button>
+        <button onclick="switchView('editor')" id="nav-editor" disabled>节点编排</button>
+        <button onclick="switchView('chat')" id="nav-chat" disabled>对话执行</button>
+    </nav>
+
+    <div id="view-tasks" class="view-container active">
+        <h2>任务管理面板</h2>
+        <button id="btn-create-task" style="padding: 10px; background: #4CAF50; color: white; border: none; cursor: pointer;">
+            + 创建新任务
+        </button>
+        
+        <h3>已有任务列表：</h3>
+        <ul id="task-list" style="list-style-type: none; padding: 0;">
+            <li>正在加载任务...</li>
+        </ul>
+    </div>
+    <div id="view-editor" class="view-container" style="display: none; height: 80vh;">
+        <div style="display: flex; height: 100%;">
+            <div style="width: 250px; background: #f9f9f9; padding: 15px; border-right: 1px solid #ccc;">
+                <h3>节点编排</h3>
+                <button id="btn-add-agent" style="width: 100%; padding: 10px; margin-bottom: 20px;">+ 添加 Agent 节点</button>
+                
+                <h4>可用后端工具：</h4>
+                <div id="tools-container" style="margin-bottom: 20px; font-size: 14px;">加载中...</div>
+                
+                <hr>
+                <button id="btn-save-graph" style="width: 100%; padding: 10px; background: #2196F3; color: white; border: none; cursor: pointer;">
+                    保存并进入对话 ->
+                </button>
+            </div>
+            <div id="drawflow" style="flex: 1; position: relative;"></div>
+        </div>
+    </div>
+    <div id="view-chat" class="view-container" style="display: none; height: 80vh;">
+        <div style="display: flex; flex-direction: column; height: 100%; max-width: 800px; margin: 0 auto; border: 1px solid #ccc;">
+            <div id="chat-history" style="flex: 1; padding: 20px; overflow-y: auto; background: #f5f5f5;">
+                <div style="text-align: center; color: #888; margin-bottom: 20px;">工作流已就绪，请输入任务开始执行。</div>
+            </div>
+            
+            <div style="display: flex; padding: 10px; background: white; border-top: 1px solid #ccc;">
+                <textarea id="chat-input" placeholder="输入你想让 Agent 做什么..." style="flex: 1; height: 50px; resize: none; padding: 5px;"></textarea>
+                <button id="btn-send" style="width: 80px; margin-left: 10px; background: #4CAF50; color: white; border: none; cursor: pointer;">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
