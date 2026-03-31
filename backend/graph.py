@@ -1,33 +1,40 @@
-from typing import TypedDict
+# backend/graph.py
 from langgraph.graph import StateGraph, END
-from agent import Agent
+from langgraph.checkpoint.memory import MemorySaver
 from state import WorkflowState
+from agent import Agent
 import tools
 
-workflow = StateGraph(WorkflowState)
+# 1. 全局独立实例：记忆存储器，保证多轮对话不失忆
+memory = MemorySaver()
 
-my_planner = Agent(name="规划师", description="写计划", tools=[tools.mock_web_search])
-
-workflow.add_node("planner", my_planner.run_node)
-# 假设已经执行了：workflow = StateGraph(WorkflowState) 和 workflow.add_node("planner", my_planner.run_node)
-
-# 1. 明确数据流向：设置图的起点和终点
-workflow.set_entry_point("planner")  # 任务开始时，第一个把大纸箱交给 planner
-workflow.add_edge("planner", END)    # planner 干完活后，直接结束 (END 需要从 langgraph.graph 导入)
-
-# 2. 编译图：把我们画好的草图变成一个可以执行的程序
-app = workflow.compile()
-
-# 3. 触发执行：塞入初始的“大纸箱”状态，启动流水线
-if __name__ == "__main__":
-    # 定义初始状态（包含用户的任务）
-    initial_state = {
-        "task": "帮我制定一个学习 Python 的两周计划", 
-        "current_draft": ""
-    }
+# 2. 独立功能：根据前端传来的配置，动态组装工作流
+def build_dynamic_workflow(nodes_config: list, edges_config: list):
+    workflow = StateGraph(WorkflowState)
     
-    # invoke 会让纸箱跑完整个流程，并返回最终装满状态的大纸箱
-    final_state = app.invoke(initial_state)
-    
-    # print("\n=== 最终结果 ===")
-    # print(final_state["current_draft"])
+    # 动态添加节点
+    for node_info in nodes_config:
+        node_id = node_info["id"]
+        # 根据前端传来的工具名，映射到真实的 python 函数
+        # 这里为了演示，简单判断如果前端传了 'search' 就挂载工具
+        selected_tools = [tools.mock_web_search] if "search" in node_info.get("tools", []) else []
+        
+        # 实例化你写的 Agent 类
+        agent_instance = Agent(
+            name=node_info["name"], 
+            description=node_info["description"], 
+            tools=selected_tools
+        )
+        workflow.add_node(node_id, agent_instance.run_node)
+        
+    # 动态添加连线
+    for edge in edges_config:
+        workflow.add_edge(edge["from"], edge["to"])
+        
+    # 如果没有指定起点，默认将第一个节点作为起点，最后一个作为终点
+    if nodes_config:
+        workflow.set_entry_point(nodes_config[0]["id"])
+        workflow.add_edge(nodes_config[-1]["id"], END)
+        
+    # 编译并挂载全局记忆插件
+    return workflow.compile(checkpointer=memory)
