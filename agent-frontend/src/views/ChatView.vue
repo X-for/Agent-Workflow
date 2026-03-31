@@ -50,7 +50,12 @@
             
             <!-- 正文气泡 -->
             <div class="text-bubble" v-if="msg.content || msg.loading">
-              <span v-if="msg.content">{{ msg.content }}</span>
+             <!-- 使用 v-html 动态渲染解析好的 Markdown HTML -->
+              <div 
+                v-if="msg.content" 
+                class="markdown-body"
+                v-html="md.render(msg.content)"
+              ></div>
               
               <!-- 优雅的思考动画 -->
               <div v-if="msg.loading" class="thinking-indicator">
@@ -97,6 +102,28 @@
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js'
+// 引入一种你喜欢的高亮主题（这里用 github 的深色主题，很百搭）
+import 'highlight.js/styles/github-dark.css' 
+
+// 初始化 MarkdownIt 并配置高亮规则
+const md = new MarkdownIt({
+  html: true,
+  linkify: true,
+  typographer: true,
+  breaks: true, // 🌟 新增这一行：将 \n 解析为 <br>
+  highlight: function (str, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return '<pre class="hljs"><code>' +
+               hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
+               '</code></pre>';
+      } catch (__) {}
+    }
+    return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+  }
+})
 
 const route = useRoute()
 const taskId = ref(route.params.taskId || 'Unknown_Task')
@@ -154,12 +181,28 @@ const sendMessage = async () => {
     edges = parsed.edges || []
   }
 
+// ====== payload：======
+  // 将前端的 nodes 映射成后端 backend/graph.py 想要的格式
+  const formattedNodes = nodes.map(n => ({
+    id: n.id,
+    name: n.label, // 后端要 name，我们把 label 给它
+    description: n.data?.prompt || '', // 后端要 description，我们把 prompt 给它
+    tools: n.data?.tools || [] // 确保 tools 也是个数组
+  }))
+
+  // 确保 edges 格式也是后端想要的 (Vue Flow 默认的连线是 source 和 target，但你的后端可能是 from 和 to，我们做个保险转换)
+  const formattedEdges = edges.map(e => ({
+    from: e.source, // Vue Flow 叫 source，后端叫 from
+    to: e.target    // Vue Flow 叫 target，后端叫 to
+  }))
+
   const payload = {
     thread_id: taskId.value,
     user_input: userMsg,
-    nodes: nodes,
-    edges: edges
+    nodes: formattedNodes,
+    edges: formattedEdges
   }
+// ==========================
 
   // 3. 在聊天区创建一个空的 Agent 消息框，准备接收流式打字
   const agentResponseIndex = messages.value.length
@@ -192,6 +235,7 @@ const sendMessage = async () => {
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
     let done = false
+    let buffer = ''
 
     // 5. 循环读取数据流
     while (!done) {
@@ -199,18 +243,27 @@ const sendMessage = async () => {
       done = readerDone
       
       if (value) {
-        // 解码得到的二进制数据
-        const chunk = decoder.decode(value, { stream: true })
-        // 后端返回的是 "data: xxxx\n\n" 格式，我们需要解析它
-        const lines = chunk.split('\n')
+        // 把新数据加入缓冲池
+        buffer += decoder.decode(value, { stream: true })
+        // 按 SSE 的标准结束符（双换行）进行切割
+        const parts = buffer.split('\n\n')
         
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            // 提取真正的文字内容
-            const text = line.replace('data: ', '')
-            // 将文字一点点拼接到当前 Agent 的对话框里
-            messages.value[agentResponseIndex].content += text
-            scrollToBottom()
+        // 最后一个元素可能是不完整的数据块，留到下一次循环处理
+        buffer = parts.pop()
+        
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            const jsonStr = part.replace('data: ', '').trim()
+            if (jsonStr) {
+              try {
+                // 安全解析 JSON，完美保留所有换行和缩进
+                const dataObj = JSON.parse(jsonStr)
+                messages.value[agentResponseIndex].content += dataObj.content
+                scrollToBottom()
+              } catch (err) {
+                console.warn("解析 chunk 失败:", jsonStr)
+              }
+            }
           }
         }
       }
@@ -231,7 +284,19 @@ const clearChat = () => {
   messages.value = [{ role: 'agent', agentName: '系统管家', content: '上下文已重置。' }]
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 加载历史记忆
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/history/${taskId.value}`)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.messages && data.messages.length > 0) {
+        messages.value = data.messages
+      }
+    }
+  } catch (e) {
+    console.error('获取历史记录失败', e)
+  }
   scrollToBottom()
 })
 </script>
@@ -496,5 +561,66 @@ html.dark .message-row.user .text-bubble {
   margin-top: 12px;
   font-size: 0.75rem;
   color: var(--el-text-color-placeholder);
+}
+
+/* --- Markdown 渲染样式 --- */
+.markdown-body {
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+/* 段落间距 */
+.markdown-body p {
+  margin-bottom: 12px;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* 代码块美化 */
+.markdown-body pre {
+  background-color: #1e1e1e !important;
+  color: #d4d4d4;
+  padding: 12px 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: 'Fira Code', Consolas, Monaco, monospace;
+  font-size: 0.9em;
+}
+
+/* 行内代码 */
+.markdown-body code {
+  background-color: var(--el-fill-color-dark);
+  color: var(--el-color-danger);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+/* pre 块内的 code 不需要行内样式 */
+.markdown-body pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* 列表缩进 */
+.markdown-body ul, .markdown-body ol {
+  padding-left: 20px;
+  margin-bottom: 12px;
+}
+
+/* 表格基本样式 */
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--el-border-color);
+  padding: 8px 12px;
 }
 </style>
