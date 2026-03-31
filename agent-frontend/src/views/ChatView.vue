@@ -258,7 +258,30 @@ const sendMessage = async () => {
               try {
                 // 安全解析 JSON，完美保留所有换行和缩进
                 const dataObj = JSON.parse(jsonStr)
-                messages.value[agentResponseIndex].content += dataObj.content
+                // 后端传过来的当前发言人
+                const incomingAgent = dataObj.agentName || 'Agent 网络'
+                
+                // LangGraph 会有一些内部节点(比如 __start__), 我们过滤掉它
+                if (incomingAgent.startsWith('__')) continue
+                
+                // 获取当前界面的最后一个消息气泡
+                const lastMsg = messages.value[messages.value.length - 1]
+                
+                // 🌟 核心判断：如果最后一条消息就是当前 Agent 说的，直接追加字
+                if (lastMsg.role === 'agent' && (lastMsg.agentName === incomingAgent || lastMsg.agentName === 'Agent 网络')) {
+                  lastMsg.agentName = incomingAgent // 更新正确的名称
+                  lastMsg.content += dataObj.content
+                  lastMsg.loading = false
+                } else {
+                  // 🌟 如果换人了 (说明流转到了下一个节点)，我们新建一个聊天气泡！
+                  messages.value.push({
+                    role: 'agent',
+                    agentName: incomingAgent,
+                    content: dataObj.content,
+                    loading: false
+                  })
+                }
+                
                 scrollToBottom()
               } catch (err) {
                 console.warn("解析 chunk 失败:", jsonStr)

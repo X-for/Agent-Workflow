@@ -54,7 +54,18 @@
         <div v-if="panelVisible && activeNode" class="floating-panel">
           <div class="panel-header">
             <h3>节点配置</h3>
-            <el-button circle size="small" icon="Close" @click="closePanel" />
+            <div class="panel-actions">
+              <el-button size="small" plain @click="duplicateNode">
+                <span style="margin-right: 3px;">📑</span> 复制
+              </el-button>
+              <!-- 🌟 新增的删除按钮 -->
+              <el-button size="small" type="danger" plain @click="deleteNode">
+                <span style="margin-right: 3px;">🗑️</span> 删除
+              </el-button>  
+              <el-button size="small" plain @click="closePanel">
+                <span style="margin-right: 3px;">🗑️</span> 关闭
+              </el-button>
+            </div>
           </div>
           
           <div class="panel-body">
@@ -101,6 +112,7 @@ import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { el } from 'element-plus/es/locale/index.mjs'
 
 const route = useRoute()
 const taskId = route.params.taskId || 'default_task'
@@ -190,6 +202,21 @@ const duplicateNode = () => {
   }
   nodes.value.push(newNode)
   activeNode.value = newNode
+}
+
+// === 删除节点逻辑 ===
+const deleteNode = () => {
+  if (!activeNode.value) return
+  const nodeId = activeNode.value.id
+  
+  // 1. 从画布中移除该节点
+  nodes.value = nodes.value.filter(n => n.id !== nodeId)
+  // 2. 同时移除与该节点相关的所有连线
+  edges.value = edges.value.filter(e => e.source !== nodeId && e.target !== nodeId)
+  
+  // 关闭面板并提示
+  closePanel()
+  ElMessage.success('节点及关联连线已删除')
 }
 
 const toggleTool = (toolName) => {
