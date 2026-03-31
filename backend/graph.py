@@ -29,5 +29,5 @@ if __name__ == "__main__":
     # invoke 会让纸箱跑完整个流程，并返回最终装满状态的大纸箱
     final_state = app.invoke(initial_state)
     
-    print("\n=== 最终结果 ===")
-    print(final_state["current_draft"])
+    # print("\n=== 最终结果 ===")
+    # print(final_state["current_draft"])
