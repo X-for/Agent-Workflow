@@ -7,6 +7,9 @@ import './style.css' // 默认样式
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import '@vue-flow/controls/dist/style.css';
+import 'element-plus/theme-chalk/dark/css-vars.css' 
+import './style.css'
+
 
 const app = createApp(App)
 

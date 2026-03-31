@@ -1,131 +1,164 @@
 <template>
-  <div class="editor-container">
-    <!-- 左侧侧边栏：组件库 -->
-    <div class="sidebar">
-      <h3>组件库</h3>
-      <p class="desc">拖拽下方节点到画布</p>
-      
-      <div 
-        class="draggable-item agent-node" 
-        draggable="true" 
-        @dragstart="onDragStart($event, 'agent')"
-      >
-        🤖 Agent 节点
+  <div class="editor-workspace">
+    <!-- 顶部状态栏 -->
+    <div class="editor-header">
+      <div class="header-left">
+        <el-button circle icon="ArrowLeft" @click="$router.push('/')" />
+        <span class="workflow-title">未命名工作流 <el-tag size="small" type="info">草稿</el-tag></span>
       </div>
-      
-      <div class="sidebar-actions">
-        <el-button type="primary" style="width: 100%" @click="saveWorkflow">保存当前流程</el-button>
-        <el-button style="width: 100%; margin-top: 10px;" @click="$router.push('/')">返回列表</el-button>
+      <div class="header-right">
+        <el-button type="primary" round @click="saveWorkflow">
+          <span style="margin-right: 4px;">💾</span> 保存编排
+        </el-button>
       </div>
     </div>
 
-    <!-- 右侧：Vue Flow 画布区域 -->
-    <div class="canvas-area" @drop="onDrop" @dragover.prevent>
-      <VueFlow 
-        v-model:nodes="nodes" 
-        v-model:edges="edges" 
-        class="vue-flow-basic-example"
-        @connect="onConnect"
-        @nodeClick="onNodeClick"
-      >
-        <Background pattern-color="#aaa" :gap="20" />
-        <Controls />
-      </VueFlow>
-    </div>
-
-    <!-- 右侧弹出的属性配置抽屉 -->
-    <el-drawer
-      v-model="drawerVisible"
-      :title="`配置节点: ${selectedNode?.label}`"
-      size="400px"
-      direction="rtl"
-    >
-      <div v-if="selectedNode" class="node-config-form">
-        
-        <div class="form-item">
-          <h4>Agent 名称</h4>
-          <el-input v-model="selectedNode.label" placeholder="给这个 Agent 起个名字" />
+    <div class="canvas-container">
+      <!-- 悬浮式左侧组件库 (类似 Figma 面板) -->
+      <div class="floating-sidebar">
+        <div class="sidebar-header">
+          <h3>组件库</h3>
         </div>
-
-        <div class="form-item">
-          <h4>系统提示词 (System Prompt)</h4>
-          <el-input 
-            v-model="selectedNode.data.prompt" 
-            type="textarea" 
-            :rows="6" 
-            placeholder="例如：你是一个专业的数据分析师，请根据提供的数据回答问题..." 
-          />
+        <div class="components-list">
+          <div 
+            class="component-item" 
+            draggable="true" 
+            @dragstart="onDragStart($event, 'agent')"
+          >
+            <div class="comp-icon">🤖</div>
+            <div class="comp-info">
+              <span class="comp-name">Agent 节点</span>
+              <span class="comp-desc">拖拽添加智能体</span>
+            </div>
+          </div>
         </div>
-
-        <div class="form-item">
-          <h4>可用工具 (Tools)</h4>
-          <p class="desc">勾选该 Agent 可调用的工具</p>
-          <el-checkbox-group v-model="selectedNode.data.tools">
-            <el-checkbox 
-              v-for="tool in availableTools" 
-              :key="tool.id" 
-              :value="tool.id"
-              class="tool-checkbox"
-            >
-              {{ tool.name }} <span class="tool-desc">({{ tool.desc }})</span>
-            </el-checkbox>
-          </el-checkbox-group>
-        </div>
-
       </div>
-    </el-drawer>
 
+      <!-- Vue Flow 画布区域 -->
+      <div class="canvas-area" @drop="onDrop" @dragover.prevent>
+        <VueFlow 
+          v-model:nodes="nodes" 
+          v-model:edges="edges" 
+          class="modern-flow"
+          @connect="onConnect"
+          @node-click="onNodeClick"
+          @pane-click="closePanel"
+        >
+          <Background pattern-color="var(--el-border-color)" :gap="24" :size="2" />
+          <Controls class="modern-controls" />
+        </VueFlow>
+      </div>
+
+      <!-- 悬浮式右侧属性面板 (取代之前的 Drawer) -->
+      <transition name="slide-panel">
+        <div v-if="panelVisible && activeNode" class="floating-panel">
+          <div class="panel-header">
+            <h3>节点配置</h3>
+            <el-button circle size="small" icon="Close" @click="closePanel" />
+          </div>
+          
+          <div class="panel-body">
+            <el-form label-position="top">
+              <el-form-item label="节点名称">
+                <el-input v-model="activeNode.label" placeholder="给它起个名字..." />
+              </el-form-item>
+
+              <el-form-item label="系统提示词 (Prompt)">
+                <el-input 
+                  v-model="activeNode.data.prompt" 
+                  type="textarea" 
+                  :rows="8" 
+                  resize="none"
+                  placeholder="你是一个专业的数据分析师..." 
+                />
+              </el-form-item>
+
+              <el-form-item label="挂载工具 (Tools)">
+                <div class="tools-grid">
+                  <div 
+                    v-for="tool in availableTools" 
+                    :key="tool.name"
+                    :class="['tool-card', { active: activeNode.data.tools.includes(tool.name) }]"
+                    @click="toggleTool(tool.name)"
+                  >
+                    <div class="tool-icon">{{ tool.icon }}</div>
+                    <div class="tool-name">{{ tool.label }}</div>
+                  </div>
+                </div>
+              </el-form-item>
+            </el-form>
+          </div>
+        </div>
+      </transition>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 
 const { addEdges, screenToFlowCoordinate } = useVueFlow()
 
+// 初始节点
 const nodes = ref([
   {
     id: 'node_1',
     type: 'default',
-    position: { x: 250, y: 100 },
+    position: { x: 300, y: 150 },
     label: '🟢 开始节点',
-    data: { prompt: '我是系统的入口节点。', tools: [] }
+    data: { prompt: '', tools: [] },
+    // 自定义一些节点样式使其更现代
+    style: { 
+      borderRadius: '12px', 
+      padding: '10px 20px', 
+      border: '1px solid var(--el-border-color)',
+      backgroundColor: 'var(--el-bg-color-overlay)',
+      color: 'var(--el-text-color-primary)',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+    }
   }
 ])
-
 const edges = ref([])
 
-// === 抽屉与节点配置逻辑 ===
-const drawerVisible = ref(false) // 控制抽屉是否显示
-const selectedNode = ref(null)   // 当前正在被编辑的节点对象
+let idCounter = 0
+const getId = () => `agent_${idCounter++}`
 
-// 模拟从后端加载的所有可用工具
-const availableTools = ref([])
+// === 右侧悬浮面板逻辑 ===
+const panelVisible = ref(false)
+const activeNode = ref(null)
 
-onMounted(() => {
-  // 【教学点】：以后你需要写 fetch('/api/tools') 从后端获取真实的 tools 列表
-  availableTools.value = [
-    { id: 'web_search', name: '网络搜索', desc: '允许 Agent 联网搜索最新信息' },
-    { id: 'calculator', name: '计算器', desc: '执行精确的数学计算' },
-    { id: 'read_file', name: '读取文件', desc: '读取用户指定的本地或云端文件' },
-    { id: 'execute_code', name: '代码执行', desc: '在沙盒中运行 Python 代码' }
-  ]
-})
+const availableTools = ref([
+  { name: 'search', label: '联网搜索', icon: '🔍' },
+  { name: 'calculator', label: '计算器', icon: '🧮' },
+  { name: 'read_file', label: '读写文件', icon: '📄' },
+  { name: 'run_code', label: '代码执行', icon: '💻' }
+])
 
-// 当画布上的节点被点击时触发
 const onNodeClick = (event) => {
-  // event.node 就是被点击的那个节点对象
-  selectedNode.value = event.node
-  drawerVisible.value = true // 弹出右侧抽屉
+  activeNode.value = event.node
+  panelVisible.value = true
 }
 
-// === 拖拽核心逻辑 ===
-let idCounter = 0
-const getId = () => `agent_node_${idCounter++}`
+const closePanel = () => {
+  panelVisible.value = false
+  setTimeout(() => { activeNode.value = null }, 300) // 等待动画结束
+}
 
+// 切换工具选中状态 (取代之前的下拉框，改用卡片点击)
+const toggleTool = (toolName) => {
+  const tools = activeNode.value.data.tools
+  const index = tools.indexOf(toolName)
+  if (index > -1) {
+    tools.splice(index, 1)
+  } else {
+    tools.push(toolName)
+  }
+}
+
+// === 拖拽逻辑 ===
 const onDragStart = (event, nodeType) => {
   if (event.dataTransfer) {
     event.dataTransfer.setData('application/vueflow', nodeType)
@@ -146,11 +179,16 @@ const onDrop = (event) => {
     id: getId(),
     type: 'default',
     position,
-    label: `🤖 Agent ${idCounter}`,
-    // 确保每个新节点都有独立的 data 对象来存放配置
-    data: { 
-      prompt: '',
-      tools: []
+    label: `🤖 新建 Agent`,
+    data: { prompt: '', tools: [] },
+    style: { 
+      borderRadius: '12px', 
+      padding: '10px 20px', 
+      border: '2px solid transparent',
+      backgroundColor: 'var(--el-bg-color-overlay)',
+      color: 'var(--el-text-color-primary)',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+      transition: 'border-color 0.2s'
     }
   }
   nodes.value.push(newNode)
@@ -161,79 +199,241 @@ const onConnect = (connection) => {
 }
 
 const saveWorkflow = () => {
-  console.log('--- 准备发给后端的保存数据 ---')
-  console.log('Nodes:', JSON.parse(JSON.stringify(nodes.value)))
-  console.log('Edges:', JSON.parse(JSON.stringify(edges.value)))
-  alert('数据已打印到控制台，这些就是用来生成 Agent 工作流的核心配置！')
+  console.log('Nodes:', JSON.stringify(nodes.value, null, 2))
+  alert('已保存！按 F12 查看数据结构')
 }
 </script>
 
 <style scoped>
-/* 之前的样式保持不变 */
-.editor-container {
+.editor-workspace {
   display: flex;
-  height: 100vh;
-  width: 100vw;
-  background-color: #fff;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background-color: var(--el-bg-color-page);
 }
 
-.sidebar {
-  width: 250px;
-  background-color: #f8f9fa;
-  border-right: 1px solid #e4e7ed;
-  padding: 20px;
+/* 顶部状态栏 */
+.editor-header {
+  height: 56px;
+  background-color: var(--el-bg-color-overlay);
+  border-bottom: 1px solid var(--el-border-color-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.workflow-title {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--el-text-color-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 画布主区域 */
+.canvas-container {
+  flex-grow: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.canvas-area {
+  width: 100%;
+  height: 100%;
+}
+
+/* --- 悬浮式左侧栏 --- */
+.floating-sidebar {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: 240px;
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  z-index: 5;
+  overflow: hidden;
+  /* 毛玻璃效果 */
+  backdrop-filter: blur(10px);
+  background-color: rgba(var(--el-bg-color-overlay-rgb), 0.8);
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--el-text-color-regular);
+}
+
+.components-list {
+  padding: 12px;
+}
+
+.component-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background: var(--el-fill-color-light);
+  border-radius: 10px;
+  cursor: grab;
+  transition: transform 0.2s, background 0.2s;
+}
+.component-item:hover {
+  transform: translateY(-2px);
+  background: var(--el-fill-color);
+}
+.component-item:active {
+  cursor: grabbing;
+}
+
+.comp-icon {
+  font-size: 24px;
+  margin-right: 12px;
+  background: #fff;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+/* 暗黑模式下图标背景适配 */
+html.dark .comp-icon {
+  background: var(--el-bg-color);
+}
+
+.comp-info {
+  display: flex;
+  flex-direction: column;
+}
+.comp-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.comp-desc {
+  font-size: 0.75rem;
+  color: var(--el-text-color-secondary);
+}
+
+/* --- 悬浮式右侧属性面板 --- */
+.floating-panel {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  bottom: 24px;
+  width: 320px;
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 16px;
+  box-shadow: -4px 8px 24px rgba(0, 0, 0, 0.08);
+  z-index: 5;
   display: flex;
   flex-direction: column;
 }
 
-.desc {
-  font-size: 12px;
-  color: #909399;
-  margin-bottom: 20px;
-}
-
-.draggable-item {
-  padding: 15px;
-  border: 1px dashed #409EFF;
-  border-radius: 4px;
-  background-color: #ecf5ff;
-  color: #409EFF;
-  text-align: center;
-  cursor: grab;
-  margin-bottom: 15px;
-  user-select: none;
-}
-.draggable-item:active {
-  cursor: grabbing;
-}
-
-.sidebar-actions {
-  margin-top: auto;
-}
-
-.canvas-area {
-  flex-grow: 1;
-  height: 100%;
-}
-
-/* 新增的抽屉内表单样式 */
-.node-config-form .form-item {
-  margin-bottom: 25px;
-}
-.node-config-form h4 {
-  margin: 0 0 10px 0;
-  font-size: 15px;
-  color: #303133;
-}
-.tool-checkbox {
+.panel-header {
+  padding: 16px 20px;
   display: flex;
-  margin-bottom: 10px;
-  white-space: normal;
-  height: auto;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--el-border-color-lighter);
 }
-.tool-desc {
-  font-size: 12px;
-  color: #909399;
-  margin-left: 5px;
+.panel-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.panel-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+/* 现代化的工具选择网格 */
+.tools-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.tool-card {
+  border: 1px solid var(--el-border-color);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--el-fill-color-blank);
+}
+
+.tool-card:hover {
+  border-color: var(--el-color-primary-light-5);
+  background: var(--el-color-primary-light-9);
+}
+
+.tool-card.active {
+  border-color: var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+}
+html.dark .tool-card.active {
+  background: var(--el-color-primary-dark-2);
+}
+
+.tool-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+.tool-name {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+/* 右侧面板滑出动画 */
+.slide-panel-enter-active,
+.slide-panel-leave-active {
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.slide-panel-enter-from,
+.slide-panel-leave-to {
+  transform: translateX(120%);
+  opacity: 0;
+}
+</style>
+
+/* 覆盖 Vue Flow 默认控件在暗黑模式下的样式 */
+<style>
+html.dark .vue-flow__controls {
+  background-color: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+html.dark .vue-flow__controls-button {
+  background-color: var(--el-bg-color-overlay);
+  color: var(--el-text-color-primary);
+  border-bottom-color: var(--el-border-color);
+}
+html.dark .vue-flow__controls-button:hover {
+  background-color: var(--el-fill-color-light);
 }
 </style>
