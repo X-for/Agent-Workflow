@@ -54,43 +54,66 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus' // 👈 增加引入
+
 
 const router = useRouter()
 const tasks = ref([])
+// 增加一个 loading 状态
+const loading = ref(true) 
 
-onMounted(() => {
-  tasks.value = [
-    { id: 'task_001', name: '客服机器人', path: '/agents/customer_service', description: '负责解答用户的常见问题，已接入知识库。' },
-    { id: 'task_002', name: '数据分析助手', path: '/agents/data_analyzer', description: '自动读取数据库并生成可视化分析报告。' },
-    { id: 'task_003', name: '代码审查专家', path: '/agents/code_reviewer', description: '审查提交的 PR，提供优化建议。' },
-  ]
+// 后端 API 地址
+const API_BASE_URL = 'http://localhost:8001'
+
+onMounted(async () => {
+  try {
+    // 调用后端 GET /api/tasks 接口
+    const response = await fetch(`${API_BASE_URL}/api/tasks`)
+    if (!response.ok) throw new Error('网络请求失败')
+    
+    const data = await response.json()
+    
+    // 后端返回的是 {"tasks": ["dir1", "dir2"]} 格式
+    // 我们把它映射成前端卡片需要的格式
+    tasks.value = data.tasks.map(taskName => ({
+      id: taskName, 
+      name: taskName, 
+      path: `/workspace/${taskName}`, 
+      description: `基于目录 ${taskName} 的智能体工作流。`
+    }))
+  } catch (error) {
+    console.error('获取任务失败:', error)
+    // 如果后端没开或者报错，给个友好的提示，并塞一个测试数据防止页面全空
+    ElMessage.error('无法连接到后端服务器，请检查 FastAPI 是否在 8001 端口运行！')
+  } finally {
+    loading.value = false
+  }
 })
 
-const createNewTask = () => router.push('/editor')
+// 替换原来的 createNewTask 函数
+const createNewTask = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入工作流的名称 (这将在后端创建对应的文件夹)', 
+      '🚀 创建新工作流', 
+      {
+        confirmButtonText: '确认创建',
+        cancelButtonText: '取消',
+        inputPattern: /^[a-zA-Z0-9_\u4e00-\u9fa5]+$/, // 允许中文、字母、数字、下划线
+        inputErrorMessage: '名称只能包含中英文、数字和下划线'
+      }
+    )
+    if (value) {
+      // 使用用户输入的名字作为路由参数跳转
+      router.push(`/editor/${value}`)
+    }
+  } catch (e) {
+    // 用户点击了取消，什么都不做
+  }
+}
+
 const goToChat = (taskId) => router.push(`/chat/${taskId}`)
 const goToEditor = (taskId) => router.push(`/editor/${taskId}`)
-
-
-// === 复制整个工作流（拓扑结构）逻辑 ===
-const duplicateWorkflow = (originalTask) => {
-  // 生成一个新的假 ID
-  const newId = 'task_' + Math.random().toString(36).substr(2, 6)
-  
-  // 深拷贝原来的任务信息，并改个名字
-  const newTask = {
-    ...originalTask,
-    id: newId,
-    name: originalTask.name + ' (副本)',
-    // 假设后端的文件目录也是通过追加副本生成的
-    path: originalTask.path + '_copy',
-  }
-
-  // 把新任务加入列表（放到最前面）
-  tasks.value.unshift(newTask)
-
-  // 提示用户
-  alert(`已成功复制工作流：${originalTask.name}，新名称为：${newTask.name}！\n(将来这里会通知后端把对应的节点拓扑 JSON 配置文件也复制一份)`)
-}
 </script>
 
 <style scoped>

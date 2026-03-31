@@ -96,22 +96,26 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const taskId = ref(route.params.taskId || 'Unknown_Task')
 const chatHistoryRef = ref(null)
 
+const API_BASE_URL = 'http://localhost:8001'
+
 const messages = ref([
   {
     role: 'agent',
     agentName: '系统管家',
-    content: '你好！工作流已加载完毕，你可以随时向我下发指令。'
+    content: `你好！[${taskId.value}] 工作流已加载完毕，你可以随时向我下发指令。`
   }
 ])
 
 const inputText = ref('')
 const isSending = ref(false)
 
+// 自动滚动到底部
 const scrollToBottom = async () => {
   await nextTick()
   if (chatHistoryRef.value) {
@@ -119,7 +123,7 @@ const scrollToBottom = async () => {
   }
 }
 
-// 处理回车发送 (阻止默认的换行行为)
+// 处理回车发送
 const handleEnter = (e) => {
   if (!e.shiftKey) {
     e.preventDefault()
@@ -127,46 +131,100 @@ const handleEnter = (e) => {
   }
 }
 
+// === 核心：发起真实后端对话请求 ===
 const sendMessage = async () => {
   if (!inputText.value.trim() || isSending.value) return
 
   const userMsg = inputText.value
+  // 1. 把用户的消息推入列表
   messages.value.push({ role: 'user', content: userMsg })
   
   inputText.value = ''
   isSending.value = true
   scrollToBottom()
 
+  // 2. 准备发给后端的数据（需要带上当前任务的图纸信息）
+  // 尝试从本地存储中获取刚才编排好的节点和连线
+  const savedData = localStorage.getItem(`workflow_${taskId.value}`)
+  let nodes = []
+  let edges = []
+  if (savedData) {
+    const parsed = JSON.parse(savedData)
+    nodes = parsed.nodes || []
+    edges = parsed.edges || []
+  }
+
+  const payload = {
+    thread_id: taskId.value,
+    user_input: userMsg,
+    nodes: nodes,
+    edges: edges
+  }
+
+  // 3. 在聊天区创建一个空的 Agent 消息框，准备接收流式打字
   const agentResponseIndex = messages.value.length
   messages.value.push({
     role: 'agent',
-    agentName: '处理节点_01',
+    agentName: 'Agent 网络',
     content: '',
-    loading: true
+    loading: true // 显示思考中的小圆点
   })
   scrollToBottom()
 
-  // 模拟思考和工具调用
-  setTimeout(() => {
-    messages.value[agentResponseIndex].loading = false
-    messages.value[agentResponseIndex].toolCall = {
-      name: 'search_database',
-      args: `{\n  "query": "${userMsg}",\n  "limit": 5\n}`
+  try {
+    // 4. 发起 Fetch 请求，并处理 Server-Sent Events (流式响应)
+    const response = await fetch(`${API_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
     }
-    messages.value[agentResponseIndex].content = '我已经检索了相关数据。'
+
+    // 关闭 Loading 状态，准备打字
+    messages.value[agentResponseIndex].loading = false
+
+    // 获取响应的可读流
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let done = false
+
+    // 5. 循环读取数据流
+    while (!done) {
+      const { value, done: readerDone } = await reader.read()
+      done = readerDone
+      
+      if (value) {
+        // 解码得到的二进制数据
+        const chunk = decoder.decode(value, { stream: true })
+        // 后端返回的是 "data: xxxx\n\n" 格式，我们需要解析它
+        const lines = chunk.split('\n')
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            // 提取真正的文字内容
+            const text = line.replace('data: ', '')
+            // 将文字一点点拼接到当前 Agent 的对话框里
+            messages.value[agentResponseIndex].content += text
+            scrollToBottom()
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('对话请求失败:', error)
+    messages.value[agentResponseIndex].loading = false
+    messages.value[agentResponseIndex].content = '⚠️ 连接后端失败或发生错误，请检查 FastAPI 服务是否正常运行。'
+    ElMessage.error('对话请求失败')
+  } finally {
+    // 无论成功还是失败，最后都解除发送按钮的禁用状态
+    isSending.value = false
     scrollToBottom()
-
-    setTimeout(() => {
-      messages.value.push({
-        role: 'agent',
-        agentName: '总结节点',
-        content: `根据你刚才下发的指令 "${userMsg}"，我已经完成了数据处理和分析工作，并已同步到系统中。还需要我做些什么吗？`
-      })
-      isSending.value = false
-      scrollToBottom()
-    }, 1500)
-
-  }, 1200)
+  }
 }
 
 const clearChat = () => {
@@ -177,7 +235,6 @@ onMounted(() => {
   scrollToBottom()
 })
 </script>
-
 <style scoped>
 .chat-layout {
   display: flex;

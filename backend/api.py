@@ -8,9 +8,14 @@ from typing import List, Dict, Any
 import inspect
 from backend import tools
 from langchain_core.messages import AIMessageChunk
-
-# 引入刚刚写的动态组装函数
 from backend.graph import build_dynamic_workflow 
+import json
+
+class SaveWorkflowRequest(BaseModel):
+    thread_id: str
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+
 
 api = FastAPI()
 
@@ -65,6 +70,25 @@ async def get_tasks():
     # 获取目录下的所有文件夹名称
     tasks = [d for d in os.listdir(workspace_root) if os.path.isdir(os.path.join(workspace_root, d))]
     return {"tasks": tasks}
+
+@api.post("/api/save_workflow")
+async def save_workflow(request: SaveWorkflowRequest):
+    workspace_root = "workspace"
+    task_dir = os.path.join(workspace_root, request.thread_id)
+    
+    # 确保目录存在
+    if not os.path.exists(task_dir):
+        os.makedirs(task_dir)
+        
+    # 将前端的图纸保存为 json 文件
+    config_path = os.path.join(task_dir, "workflow_config.json")
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "nodes": request.nodes,
+            "edges": request.edges
+        }, f, ensure_ascii=False, indent=2)
+        
+    return {"status": "success", "message": f"工作流 {request.thread_id} 已成功保存到后端！"}
 
 @api.get("/api/tools")
 async def get_tools():
