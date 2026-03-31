@@ -1,3 +1,4 @@
+from langchain_core.runnables.config import RunnableConfig
 import os
 from langchain_core.tools import tool
 
@@ -11,8 +12,9 @@ def mock_web_search(query: str) -> str:
 
 
 @tool
-def save_document(file_name: str, content: str, thread_id: str) -> str:
+def save_document(file_name: str, content: str, config: RunnableConfig) -> str:
     """当你需要保存最终的文档、计划或代码时，调用此工具将其写入本地文件。"""
+    thread_id = config["configurable"].get("thread_id")
     # 精准定位到该任务的专属文件夹
     task_dir = os.path.join("workspaces", thread_id)
     file_path = os.path.join(task_dir, file_name)
@@ -24,8 +26,9 @@ def save_document(file_name: str, content: str, thread_id: str) -> str:
 
 
 @tool
-def read_document(filename: str, thread_id: str) -> str:
+def read_document(filename: str, config: RunnableConfig) -> str:
     """当你需要从文件读取内容时调用此工具."""
+    thread_id = config["configurable"].get("thread_id")
     # 精准定位到该任务的专属文件夹
     task_dir = os.path.join("workspaces", thread_id)
     file_path = os.path.join(task_dir, filename)

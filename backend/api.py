@@ -46,10 +46,11 @@ async def chat_endpoint(request: ChatRequest):
     # 3. 异步流式生成推送函数
     async def event_stream():
         # 使用 astream 处理异步数据流
-        async for msg, metadata in app.astream(initial_state, config=config, stream_mode="messages"):
-            if isinstance(msg, AIMessageChunk) and msg.content:
-                # 包装为 SSE 格式，浏览器才能正确解析流式数据
-                yield f"data: {msg.content}\n\n"
+        async for event in app.astream_events(initial_state, config=config, version="v2"):
+            if event["event"] == "on_chat_model_stream":
+                chunk_content = event["data"]["chunk"].content
+                if chunk_content:
+                    yield f"data: {chunk_content}\n\n"
                 
     # 4. 返回流式响应，对接前端的打字机效果
     return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -57,8 +58,8 @@ async def chat_endpoint(request: ChatRequest):
 
 @api.get("/api/tasks")
 async def get_tasks():
-    """独立功能：扫描 workspaces 目录，返回所有已创建的任务(thread_id)列表"""
-    workspace_root = "workspaces"
+    """独立功能：扫描 workspace 目录，返回所有已创建的任务(thread_id)列表"""
+    workspace_root = "workspace"
     if not os.path.exists(workspace_root):
         return {"tasks": []}
     # 获取目录下的所有文件夹名称

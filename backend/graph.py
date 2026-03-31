@@ -23,7 +23,11 @@ def build_dynamic_workflow(nodes_config: list, edges_config: list):
         node_id = node_info["id"]
         # 根据前端传来的工具名，映射到真实的 python 函数
         # 这里为了演示，简单判断如果前端传了 'search' 就挂载工具
-        selected_tools = [t.mock_web_search] if "search" in node_info.get("tools", []) else []
+        # 【修改这里】：根据前端传来的工具名，动态去 tools.py 里拿真实的函数
+        selected_tools = []
+        for tool_name in node_info.get("tools", []):
+            if hasattr(t, tool_name):
+                selected_tools.append(getattr(t, tool_name))
         
         # 实例化你写的 Agent 类
         agent_instance = Agent(

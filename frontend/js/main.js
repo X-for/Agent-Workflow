@@ -6,9 +6,12 @@ import { initChatView } from './view_chat.js';
 window.switchView = function (viewName) {
     document.querySelectorAll('.view-container').forEach(el => el.style.display = 'none');
     document.getElementById('view-' + viewName).style.display = 'block';
+    if (viewName === 'tasks') {
+        initTaskView();
+    } else if (viewName === 'editor') {
+        initEditorView();
+    } else if (viewName === 'chat') {
+        initChatView();
+    }
 };
 
-// 初始化界面1
-initTaskView();
-initEditorView();
-initChatView();
