@@ -93,10 +93,11 @@ async def get_history(thread_id: str):
             for msg in state.values["messages"]:
                 # 区分是用户发的话，还是大模型回的话
                 role = "user" if msg.type == "human" else "agent"
+                agent_name = getattr(msg, "name", None) or "Agent 网络"
                 history.append({
                     "role": role,
                     "content": msg.content,
-                    "agentName": "Agent 网络" if role == "agent" else ""
+                    "agentName": agent_name if role == "agent" else ""
                 })
             return {"messages": history}
         except Exception as e:

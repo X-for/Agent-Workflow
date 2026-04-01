@@ -268,7 +268,8 @@ const sendMessage = async () => {
   // 确保 edges 格式也是后端想要的 (Vue Flow 默认的连线是 source 和 target，但你的后端可能是 from 和 to，我们做个保险转换)
   const formattedEdges = edges.map(e => ({
     from: e.source, // Vue Flow 叫 source，后端叫 from
-    to: e.target    // Vue Flow 叫 target，后端叫 to
+    to: e.target,    // Vue Flow 叫 target，后端叫 to
+    is_debate: e.data?.is_debate === true, // 如果有辩论属性，也传递给后端  
   }))
 
   const payload = {
