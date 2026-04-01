@@ -112,6 +112,62 @@ const createNewTask = async () => {
   }
 }
 
+// === 真正处理复制的逻辑 ===
+const duplicateWorkflow = async (originalTask) => {
+  try {
+    // 1. 弹出输入框，让用户输入新名字
+    const { value: newName } = await ElMessageBox.prompt(
+      `为复制的 [${originalTask.name}] 输入一个新名称：`,
+      '📑 复制工作流',
+      {
+        confirmButtonText: '确认复制',
+        cancelButtonText: '取消',
+        inputPattern: /^[a-zA-Z0-9_\u4e00-\u9fa5]+$/,
+        inputErrorMessage: '名称只能包含中英文、数字和下划线',
+        inputValue: `${originalTask.name}_副本`
+      }
+    )
+
+    if (!newName) return
+
+    // 2. 发送请求给后端执行物理复制
+    const res = await fetch(`${API_BASE_URL}/api/duplicate_workflow`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        original_id: originalTask.id,
+        new_id: newName
+      })
+    })
+
+    const data = await res.json()
+
+    if (res.ok && data.status === 'success') {
+      ElMessage.success(data.message)
+      
+      // 3. 复制前端 localStorage 里的画布坐标信息（这样编辑器里也能看到一模一样的拓扑图）
+      const oldConfig = localStorage.getItem(`workflow_${originalTask.id}`)
+      if (oldConfig) {
+        localStorage.setItem(`workflow_${newName}`, oldConfig)
+      }
+
+      // 4. 将新任务直接插入当前列表，避免重新刷新整个页面
+      tasks.value.unshift({
+        id: newName,
+        name: newName,
+        path: `/workspace/${newName}`,
+        description: `基于目录 ${newName} 的智能体工作流。`
+      })
+    } else {
+      throw new Error(data.message)
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error(e.message || '复制失败，请重试')
+    }
+  }
+}
+
 const goToChat = (taskId) => router.push(`/chat/${taskId}`)
 const goToEditor = (taskId) => router.push(`/editor/${taskId}`)
 </script>

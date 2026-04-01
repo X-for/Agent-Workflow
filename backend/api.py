@@ -152,6 +152,34 @@ async def upload_file(thread_id: str, file: UploadFile = File(...)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+# 复制工作流接口
+@api.post("/api/duplicate_workflow")
+async def duplicate_workflow(request: dict):
+    # request: {"original_id": "旧名字", "new_id": "新名字"}
+    original_id = request.get("original_id")
+    new_id = request.get("new_id")
+    
+    if not original_id or not new_id:
+        return {"status": "error", "message": "参数缺失"}
+        
+    old_dir = os.path.join(WORKSPACE_BASE, original_id)
+    new_dir = os.path.join(WORKSPACE_BASE, new_id)
+    
+    # 检查旧目录是否存在
+    if not os.path.exists(old_dir):
+        return {"status": "error", "message": "源工作流不存在"}
+        
+    # 如果新目录已经存在，防止覆盖报错
+    if os.path.exists(new_dir):
+        return {"status": "error", "message": "同名工作流已存在，请换个名字"}
+        
+    try:
+        # 使用 shutil.copytree 完整复制整个文件夹（包含配置、上传的文件等）
+        shutil.copytree(old_dir, new_dir)
+        return {"status": "success", "message": f"成功复制为 {new_id}"}
+    except Exception as e:
+        return {"status": "error", "message": f"复制失败: {str(e)}"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:api", host="0.0.0.0", port=8001, reload=True)
