@@ -32,9 +32,19 @@
           </div>
           
           <div class="message-content">
-            <!-- 名字 -->
-            <div class="sender-name" v-if="msg.role === 'agent'">
-              {{ msg.agentName || 'Agent' }}
+            <!-- 名字和折叠控制按钮 -->
+            <div class="sender-header" v-if="msg.role === 'agent'">
+              <span class="sender-name">{{ msg.agentName || 'Agent' }}</span>
+              <el-button 
+                v-if="!msg.loading && msg.content" 
+                size="small" 
+                link 
+                type="info"
+                @click="msg.isCollapsed = !msg.isCollapsed"
+                style="margin-left: 8px; font-size: 12px;"
+              >
+                {{ msg.isCollapsed ? '展开内容 ▾' : '折叠收起 ▴' }}
+              </el-button>
             </div>
             
             <!-- 如果 Agent 调用了工具 -->
@@ -381,14 +391,7 @@ const sendMessage = async () => {
                     scrollToBottom()
                   }
                 }
-                    const agentMessages = messages.value.filter(m => m.role === 'agent');
-                if (agentMessages.length > 1) {
-                  for (let i = 0; i < agentMessages.length - 1; i++) {
-                    agentMessages[i].isCollapsed = true;
-                  }
-                  // 确保最后一条也就是最终结果是展开的
-                  agentMessages[agentMessages.length - 1].isCollapsed = false;
-                }
+                
               } catch (err) {
                 console.warn("解析 chunk 失败:", jsonStr)
               }
@@ -396,6 +399,14 @@ const sendMessage = async () => {
           }
         }
       }
+    }
+    const agentMessages = messages.value.filter(m => m.role === 'agent');
+    if (agentMessages.length > 1) {
+      for (let i = 0; i < agentMessages.length - 1; i++) {
+        agentMessages[i].isCollapsed = true;
+      }
+      // 确保最后一条也就是最终结果是展开的
+      agentMessages[agentMessages.length - 1].isCollapsed = false;
     }
   } catch (error) {
     console.error('对话请求失败:', error)
