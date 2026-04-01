@@ -1,6 +1,8 @@
+import json
 import os
 from typing import TypedDict, List
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain.agents import create_agent
@@ -13,29 +15,30 @@ class Agent:
         self.name = name
         self.description = description
         self.tools = tools
-        # === 动态选择大模型厂商和配置 ===
-        api_key = ""
-        base_url = ""
+        self.model_id = model_id
         
-        if "gpt" in model_id:
-            from langchain_openai import ChatOpenAI
-            llm = ChatOpenAI(model=model_id, api_key=os.environ.get("OPENAI_API_KEY"))
-            
-        elif "claude" in model_id:
-            from langchain_anthropic import ChatAnthropic
-            llm = ChatAnthropic(model=model_id, api_key=os.environ.get("ANTHROPIC_API_KEY"))
-            
-        elif "glm" in model_id: # 智谱
-            from langchain_openai import ChatOpenAI
-            llm = ChatOpenAI(model=model_id, api_key=os.environ.get("ZHIPU_API_KEY"), base_url="https://open.bigmodel.cn/api/paas/v4/")
-            
+        # 读取配置
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models.json")
+        model_config = None
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                models = json.load(f)
+                model_config = next((m for m in models if m["id"] == model_id), None)
+                
+        if model_config and model_config["provider"] == "anthropic":
+            llm = ChatAnthropic(
+                model=model_config["id"], 
+                api_key=os.environ.get(model_config["api_key_env"])
+            )
         else:
-            # 默认兜底使用 DeepSeek
-            from langchain_openai import ChatOpenAI
+            # 默认走 OpenAI 兼容格式 (DeepSeek, Qwen, GPT 都支持这种格式)
+            api_key = os.environ.get(model_config["api_key_env"]) if model_config else os.environ.get("OPENAI_API_KEY")
+            base_url = model_config["base_url"] if model_config else None
+            
             llm = ChatOpenAI(
-                model=model_id, # 这里可能是 deepseek-chat 或 deepseek-reasoner
-                api_key=os.environ.get("DEEPSEEK_API_KEY"), 
-                base_url="https://api.deepseek.com"
+                model=model_id, 
+                api_key=api_key, 
+                base_url=base_url
             )
             
         self.model = create_agent(llm, tools)
