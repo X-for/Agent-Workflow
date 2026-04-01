@@ -195,6 +195,31 @@ async def get_models():
         # 如果文件不存在，给个默认兜底
         return {"models": [{"id": "deepseek-chat", "name": "默认 DeepSeek", "provider": "openai_compatible"}]}
 
+
+
+import aiosqlite # 引入 aiosqlite，因为 checkpoint 底层是它
+
+# 清除后端持久化记忆接口
+@api.delete("/api/history/{thread_id}")
+async def clear_history(thread_id: str):
+    """
+    清除指定 thread_id 的所有历史记录 (清除 SQLite Checkpoint)。
+    注意：这里我们直接用 SQL 删除该 thread_id 对应的检查点数据。
+    """
+    try:
+        # LangGraph 的 Checkpointer 默认在 checkpoints 表里存储记忆
+        # 不同的库版本表名可能叫 checkpoints 或者 checkpoint
+        # 我们用 aiosqlite 直接连接并执行删除
+        async with aiosqlite.connect("checkpoints.sqlite") as db:
+            await db.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+            await db.execute("DELETE FROM writes WHERE thread_id = ?", (thread_id,))
+            await db.commit()
+            
+        return {"status": "success", "message": f"任务 {thread_id} 的上下文记忆已彻底清空。"}
+    except Exception as e:
+        print(f"清空记忆报错: {e}")
+        return {"status": "error", "message": "清空上下文失败。"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:api", host="0.0.0.0", port=8001, reload=True)

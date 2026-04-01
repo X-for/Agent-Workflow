@@ -119,7 +119,7 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 // 引入一种你喜欢的高亮主题（这里用 github 的深色主题，很百搭）
@@ -378,8 +378,41 @@ const sendMessage = async () => {
   }
 }
 
-const clearChat = () => {
-  messages.value = [{ role: 'agent', agentName: '系统管家', content: '上下文已重置。' }]
+// === 彻底清空上下文记忆 ===
+const clearChat = async () => {
+  // 先给用户弹个确认框（防止误触，毕竟删了就找不回了）
+  try {
+    await ElMessageBox.confirm(
+      '确定要清空该工作流的上下文记忆吗？此操作无法撤销。',
+      '⚠️ 清空记忆',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    
+    // 如果用户点确定，请求后端彻底清除 SQLite 记忆
+    const response = await fetch(`${API_BASE_URL}/api/history/${taskId.value}`, {
+      method: 'DELETE'
+    })
+    
+    if (response.ok) {
+      // 1. 清空前端界面的消息列表
+      messages.value = [{ 
+        role: 'agent', 
+        agentName: '系统管家', 
+        content: '✨ 上下文记忆已被彻底擦除。我们重新开始吧！' 
+      }]
+      ElMessage.success('上下文已彻底清空')
+    } else {
+      throw new Error('后端清理失败')
+    }
+  } catch (err) {
+    if (err !== 'cancel') {
+      ElMessage.error('清理失败: ' + err.message)
+    }
+  }
 }
 
 onMounted(async () => {
