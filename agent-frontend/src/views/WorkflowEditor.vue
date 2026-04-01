@@ -179,7 +179,14 @@ onMounted(async () => {
     nodes.value = parsed.nodes || []
     edges.value = parsed.edges || []
     // 恢复 ID 计数器
-    idCounter = nodes.value.length
+    const maxId = nodes.value
+      .map(n => n.id)
+      .filter(id => id.startsWith('agent_'))
+      .map(id => Number(id.replace('agent_', '')))
+      .filter(n => !Number.isNaN(n))
+      .reduce((a, b) => Math.max(a, b), -1)
+
+    idCounter = maxId + 1
   } else {
     // 没保存过就给个初始节点
     nodes.value = [{
@@ -224,7 +231,12 @@ const duplicateNode = () => {
     id: getId(), type: original.type,
     position: { x: original.position.x + 30, y: original.position.y + 30 },
     label: original.label + ' (副本)',
-    data: { prompt: original.data.prompt, tools: [...original.data.tools] },
+    data: { 
+      prompt: original.data.prompt, 
+      tools: [...original.data.tools],
+      models: original.data.models,
+      isReviewer: !!original.data.isReviewer
+    },
     style: { ...original.style }
   }
   nodes.value.push(newNode)
