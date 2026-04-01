@@ -42,6 +42,7 @@
           class="modern-flow"
           @connect="onConnect"
           @node-click="onNodeClick"
+          @edge-double-click="onEdgeDoubleClick"  
           @pane-click="closePanel"
           :default-edge-options="defaultEdgeOptions"
         >
@@ -297,6 +298,27 @@ const onConnect = (connection) => {
     data: { ...(connection.data || {}), is_debate: !!isDebate },
     style: isDebate ? { stroke: '#e74c3c', strokeWidth: 2 } : undefined
   })
+}
+
+const onEdgeDoubleClick = (event) => {
+  const edge = event.edge;
+  // 只有审核线才能切换打回状态
+  if (edge.data && edge.data.is_debate) {
+    // 切换 is_reject 状态
+    edge.data.is_reject = !edge.data.is_reject;
+    
+    // 修改样式以便在画布上能看出来区别
+    if (edge.data.is_reject) {
+      edge.style = { stroke: '#e74c3c', strokeWidth: 2, strokeDasharray: '5, 5' }; // 虚线表示打回
+      ElMessage.success('已将该连线设置为 [打回重做]');
+    } else {
+      edge.style = { stroke: '#e74c3c', strokeWidth: 2 }; // 实线表示通过
+      ElMessage.success('已将该连线设置为 [审核通过]');
+    }
+    
+    // 强制触发视图更新
+    edges.value = [...edges.value];
+  }
 }
 
 // 保存逻辑：将画布存入 localStorage 并发送给后端持久化
