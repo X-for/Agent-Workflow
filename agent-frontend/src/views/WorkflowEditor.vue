@@ -270,7 +270,15 @@ const onDrop = (event) => {
   nodes.value.push(newNode)
 }
 
-const onConnect = (connection) => { addEdges(connection) }
+const onConnect = (connection) => {
+  const sourceNode = nodes.value.find(n => n.id === connection.source)
+  const isDebate = sourceNode?.label?.includes('审核')
+  
+  addEdges({
+    ...connection,
+    data: { ...(connection.data || {}), is_debate: !!isDebate }
+  })
+}
 
 // 保存逻辑：将画布存入 localStorage 并发送给后端持久化
 const saveWorkflow = async () => {
