@@ -1,6 +1,13 @@
 from langchain_core.runnables.config import RunnableConfig
 import os
 from langchain_core.tools import tool
+from dotenv import load_dotenv
+load_dotenv()
+
+
+WORKSPACE_BASE = os.getenv("WORKSPACE_BASE", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "custom_workspace")))
+
+
 
 # 独立功能：定义一个搜索工具
 @tool
@@ -16,11 +23,13 @@ def save_document(file_name: str, content: str, config: RunnableConfig) -> str:
     """当你需要保存最终的文档、计划或代码时，调用此工具将其写入本地文件。"""
     thread_id = config["configurable"].get("thread_id")
     # 精准定位到该任务的专属文件夹
-    task_dir = os.path.join("workspaces", thread_id)
+    task_dir = os.path.join(WORKSPACE_BASE, thread_id)
     file_path = os.path.join(task_dir, file_name)
-    
+    if not os.path.exists(task_dir):
+        os.makedirs(task_dir)    
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(content)
+
         
     return f"文件 {file_name} 已成功保存至 {task_dir} 目录。"
 
@@ -30,7 +39,7 @@ def read_document(filename: str, config: RunnableConfig) -> str:
     """当你需要从文件读取内容时调用此工具."""
     thread_id = config["configurable"].get("thread_id")
     # 精准定位到该任务的专属文件夹
-    task_dir = os.path.join("workspaces", thread_id)
+    task_dir = os.path.join(WORKSPACE_BASE, thread_id)
     file_path = os.path.join(task_dir, filename)
 
     try:
