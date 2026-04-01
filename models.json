@@ -14,8 +14,8 @@
     "base_url": "https://api.deepseek.com"
   },
   {
-    "id": "qwen-chat",
-    "name": "Qwen Chat (阿里千问)",
+    "id": "qwen3-coder-next",
+    "name": "Qwen Coder plus (阿里千问)",
     "provider": "openai_compatible",
     "api_key_env": "QWEN_API_KEY",
     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"

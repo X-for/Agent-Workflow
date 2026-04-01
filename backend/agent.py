@@ -4,6 +4,7 @@ from typing import TypedDict, List
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
+from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langchain.agents import create_agent
 from langchain_core.messages import AIMessageChunk  # 引入类型判断，用于更精准的拦截
@@ -43,7 +44,7 @@ class Agent:
             
         self.model = create_agent(llm, tools)
     
-    def run_node(self, state: dict, config: dict = None, **kwargs) -> dict:
+    def run_node(self, state: dict, config: RunnableConfig = None, **kwargs) -> dict:
         config = config or {}
         # 1. 组装 System Prompt
         system_prompt = f"你是一个{self.name}。职责：{self.description}。"

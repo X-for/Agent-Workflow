@@ -185,6 +185,20 @@ const messages = ref([
 const inputText = ref('')
 const isSending = ref(false)
 
+// 专门负责更新折叠状态的函数
+const updateCollapseState = () => {
+  // 只过滤出 Agent 消息
+  const agentMessages = messages.value.filter(m => m.role === 'agent');
+  if (agentMessages.length > 0) {
+    // 先把所有 Agent 消息都设为折叠
+    agentMessages.forEach(msg => {
+      msg.isCollapsed = true;
+    });
+    // 最后一条 Agent 消息强制展开
+    agentMessages[agentMessages.length - 1].isCollapsed = false;
+  }
+}
+
 // 自动滚动到底部
 const scrollToBottom = async () => {
   await nextTick()
@@ -400,14 +414,8 @@ const sendMessage = async () => {
         }
       }
     }
-    const agentMessages = messages.value.filter(m => m.role === 'agent');
-    if (agentMessages.length > 1) {
-      for (let i = 0; i < agentMessages.length - 1; i++) {
-        agentMessages[i].isCollapsed = true;
-      }
-      // 确保最后一条也就是最终结果是展开的
-      agentMessages[agentMessages.length - 1].isCollapsed = false;
-    }
+    // 流式数据接收完毕，更新折叠状态
+    updateCollapseState()
   } catch (error) {
     console.error('对话请求失败:', error)
     messages.value[agentResponseIndex].loading = false
@@ -465,6 +473,7 @@ onMounted(async () => {
       const data = await res.json()
       if (data.messages && data.messages.length > 0) {
         messages.value = data.messages
+        updateCollapseState() // 加载历史后更新折叠状态
       }
     }
   } catch (e) {
