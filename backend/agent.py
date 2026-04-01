@@ -57,6 +57,7 @@ class Agent:
         
         for msg, metadata in self.model.stream(inputs, stream_mode="messages"):
             if isinstance(msg, AIMessageChunk) and msg.content:
+                msg.name = self.name # 确保每个 chunk 都带上这个节点的名字，方便后续调试和记录
                 final_text += msg.content   
         
         # 3. 核心改变：我们不再只是更新 current_draft，

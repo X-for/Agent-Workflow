@@ -56,7 +56,7 @@ async def chat_endpoint(request: ChatRequest):
             async for event in app.astream_events(initial_state, config=config, version="v2"):
                 if event["event"] == "on_chat_model_stream":
                     chunk_content = event["data"]["chunk"].content
-                    node_name = event.get("metadata", {}).get("langgraph_node", "Agent 网络")
+                    node_name = getattr(chunk_content, "name", None) or event.get("metadata", {}).get("langgraph_node", "Agent 网络")
                     if chunk_content:
                         # 🌟 把 agentName 也一起打包进 JSON 发给前端
                         payload = {
@@ -180,7 +180,7 @@ async def duplicate_workflow(request: dict):
     except Exception as e:
         return {"status": "error", "message": f"复制失败: {str(e)}"}
     
-    
+
 @api.get("/api/models")
 async def get_models():
     """动态读取 models.json 配置，返回给前端"""
