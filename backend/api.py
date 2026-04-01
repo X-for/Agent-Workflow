@@ -42,6 +42,8 @@ async def chat_endpoint(request: ChatRequest):
     task_dir = os.path.join(WORKSPACE_BASE, request.thread_id)
     if not os.path.exists(task_dir):
         os.makedirs(task_dir)
+
+        
         
     initial_state = {
         "task": request.user_input, 
@@ -49,14 +51,15 @@ async def chat_endpoint(request: ChatRequest):
         "messages": [HumanMessage(content=request.user_input)] 
     }
     config = {"configurable": {"thread_id": request.thread_id}}
-    
+    id_to_name = {n["id"]: n["name"] for n in request.nodes}        
     async def event_stream():
         async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as memory:
             app = build_dynamic_workflow(request.nodes, request.edges, checkpointer=memory)
             async for event in app.astream_events(initial_state, config=config, version="v2"):
                 if event["event"] == "on_chat_model_stream":
                     chunk_content = event["data"]["chunk"].content
-                    node_name = getattr(chunk_content, "name", None) or event.get("metadata", {}).get("langgraph_node", "Agent 网络")
+                    node_id = event.get("metadata", {}).get("langgraph_node", "Unknown Node")
+                    node_name = id_to_name.get(node_id, "Agent 网络")
                     if chunk_content:
                         # 🌟 把 agentName 也一起打包进 JSON 发给前端
                         payload = {

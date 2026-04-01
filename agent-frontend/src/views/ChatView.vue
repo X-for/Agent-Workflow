@@ -357,7 +357,14 @@ const sendMessage = async () => {
                   })
                 }
                 
-                scrollToBottom()
+                const el = chatHistoryRef.value
+                if (el) {
+                  // 判断距离底部的距离是否小于 100 像素
+                  const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 100
+                  if (isAtBottom) {
+                    scrollToBottom()
+                  }
+                }
               } catch (err) {
                 console.warn("解析 chunk 失败:", jsonStr)
               }

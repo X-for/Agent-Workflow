@@ -2,7 +2,7 @@ from langchain_core.runnables.config import RunnableConfig
 import os
 from langchain_core.tools import tool
 from dotenv import load_dotenv
-from duckduckgo_search import DDGS 
+from ddgs import DDGS 
 load_dotenv()
 
 

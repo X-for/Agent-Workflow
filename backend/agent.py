@@ -43,7 +43,7 @@ class Agent:
             
         self.model = create_agent(llm, tools)
     
-    def run_node(self, state: dict) -> dict:
+    def run_node(self, state: dict, config: dict) -> dict:
         # 1. 组装 System Prompt
         system_prompt = f"你是一个{self.name}。职责：{self.description}。"
         
@@ -55,7 +55,7 @@ class Agent:
         
         final_text = ""
         
-        for msg, metadata in self.model.stream(inputs, stream_mode="messages"):
+        for msg, metadata in self.model.stream(inputs, config=config,  stream_mode="messages"):
             if isinstance(msg, AIMessageChunk) and msg.content:
                 msg.name = self.name # 确保每个 chunk 都带上这个节点的名字，方便后续调试和记录
                 final_text += msg.content   
