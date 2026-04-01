@@ -283,7 +283,7 @@ const onConnect = (connection) => {
   addEdges({
     ...connection,
     data: { ...(connection.data || {}), is_debate: !!isDebate },
-    style: is_debate ? { stroke: '#e74c3c', strokeWidth: 2 } : undefined
+    style: isDebate ? { stroke: '#e74c3c', strokeWidth: 2 } : undefined
   })
 }
 
