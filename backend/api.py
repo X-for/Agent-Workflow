@@ -116,12 +116,31 @@ async def get_tasks():
 
 @api.get("/api/tools")
 async def get_tools():
-    # ...保持原样...
-    available_tools = []
+    import backend.tools as tools
+    category_map = tools.category_map
+    available_tools = {}
     for name, obj in inspect.getmembers(tools):
         if hasattr(obj, "name") and hasattr(obj, "description"):
-            available_tools.append({"name": obj.name, "description": obj.description})
-    return {"tools": available_tools}
+            module = inspect.getmodule(obj)
+            module_name = module.__name__.split(".")[-1] if module else "other"
+            if module_name in category_map:
+                cat_id = module_name
+            else:
+                cat_id = "other_tools"
+                if cat_id not in category_map:
+                    category_map[cat_id] = {"label": "其他工具", "icon": "🛠️"}
+            if cat_id not in available_tools:
+                available_tools[cat_id] = {
+                    "id": cat_id,
+                    "label": category_map[cat_id]["label"],
+                    "icon": category_map[cat_id]["icon"],
+                    "tools": []
+                }
+            available_tools[cat_id]["tools"].append({
+                "name": obj.name,
+                "description": obj.description
+            })
+    return {"categories": list(available_tools.values())}
 
 class SaveWorkflowRequest(BaseModel):
     thread_id: str

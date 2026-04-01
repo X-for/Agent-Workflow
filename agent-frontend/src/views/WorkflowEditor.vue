@@ -99,15 +99,30 @@
               </el-form-item>
 
               <el-form-item label="挂载工具 (Tools)">
-                <div class="tools-grid">
-                  <div 
-                    v-for="tool in availableTools" 
-                    :key="tool.name"
-                    :class="['tool-card', { active: activeNode.data.tools.includes(tool.name) }]"
-                    @click="toggleTool(tool.name)"
-                  >
-                    <div class="tool-icon">{{ tool.icon }}</div>
-                    <div class="tool-name">{{ tool.label }}</div>
+                <!-- 🌟 外层套一个按分类循环的 div -->
+                <div 
+                  v-for="category in availableCategories" 
+                  :key="category.id" 
+                  class="tool-category-group"
+                >
+                  <!-- 分类标题 -->
+                  <div class="category-title">
+                    <span class="category-icon">{{ category.icon }}</span>
+                    <span>{{ category.label }}</span>
+                  </div>
+                  
+                  <!-- 属于该分类的工具列表 -->
+                  <div class="tools-grid">
+                    <div 
+                      v-for="tool in category.tools" 
+                      :key="tool.name"
+                      :class="['tool-card', { active: activeNode.data.tools.includes(tool.name) }]"
+                      @click="toggleTool(tool.name)"
+                      :title="tool.description" 
+                    >
+                      <!-- 这里可以统一用分类图标，或者后续给每个 tool 细化图标 -->
+                      <div class="tool-name">{{ tool.name }}</div>
+                    </div>
                   </div>
                 </div>
               </el-form-item>
@@ -139,7 +154,7 @@ const getId = () => `agent_${idCounter++}`
 
 const panelVisible = ref(false)
 const activeNode = ref(null)
-const availableTools = ref([]) // 改为空数组，等待后端加载
+const availableCategories = ref([]) // 改为空数组，等待后端加载
 const availableModels = ref([]) // 模型列表
 const API_BASE_URL = 'http://localhost:8001'
 const defaultEdgeOptions = {
@@ -151,13 +166,8 @@ onMounted(async () => {
     const res = await fetch(`${API_BASE_URL}/api/tools`)
     if (res.ok) {
       const data = await res.json()
-      // 将后端的数据映射为前端格式 (icon随机给个默认的)
-      availableTools.value = data.tools.map(t => ({
-        name: t.name,
-        label: t.name, // 如果后端没有label，直接用name
-        desc: t.description,
-        icon: '🔧' 
-      }))
+      // 🌟 直接接收分类数据
+      availableCategories.value = data.categories
     }
   } catch (e) {
     ElMessage.error('无法获取后端工具列表')
@@ -291,7 +301,7 @@ const onDrop = (event) => {
 
 const onConnect = (connection) => {
   const sourceNode = nodes.value.find(n => n.id === connection.source)
-  const isDebate = sourceNode?.label?.includes('审核')
+  const isDebate = sourceNode?.data?.isReviewer === true
   
   addEdges({
     ...connection,
@@ -592,4 +602,27 @@ html.dark .vue-flow__controls-button {
 html.dark .vue-flow__controls-button:hover {
   background-color: var(--el-fill-color-light);
 }
+
+.tool-category-group {
+  margin-bottom: 16px;
+}
+.category-title {
+  font-size: 0.85rem;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  padding-bottom: 4px;
+}
+.category-icon {
+  font-size: 1.1rem;
+}
+/* 为了适应小卡片，可以稍微调整 tool-card 的 padding */
+.tool-card {
+  padding: 8px;
+  min-height: 40px;
+}
+.tool-icon { display: none; } /* 因为分类已经有图标了，单独工具的固定🔧图标可以隐藏 */
 </style>
