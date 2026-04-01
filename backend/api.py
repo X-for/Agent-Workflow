@@ -13,6 +13,8 @@ from backend.graph import build_dynamic_workflow
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from dotenv import load_dotenv # 新增
 from langchain_core.messages import HumanMessage
+from fastapi import FastAPI, UploadFile, File, Form
+import shutil # 用于保存文件
 
 # 加载 .env 环境变量
 load_dotenv()
@@ -129,6 +131,26 @@ async def save_workflow(request: SaveWorkflowRequest):
     with open(config_path, "w", encoding="utf-8") as f:
         json.dump({"nodes": request.nodes, "edges": request.edges}, f, ensure_ascii=False, indent=2)
     return {"status": "success"}
+
+
+# 文件上传接口
+@api.post("/api/upload/{thread_id}")
+async def upload_file(thread_id: str, file: UploadFile = File(...)):
+    # 精准定位到当前工作流的目录
+    task_dir = os.path.join(WORKSPACE_BASE, thread_id)
+    if not os.path.exists(task_dir):
+        os.makedirs(task_dir)
+        
+    # 拼装文件的绝对路径
+    file_path = os.path.join(task_dir, file.filename)
+    
+    # 异步保存文件
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {"status": "success", "filename": file.filename, "message": "文件上传成功"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

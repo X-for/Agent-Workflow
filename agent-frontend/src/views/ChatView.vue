@@ -75,6 +75,23 @@
     <!-- 底部悬浮输入区 -->
     <div class="input-wrapper">
       <div class="input-container">
+        <!-- 新增：隐藏的真实文件选择框 -->
+        <input 
+          type="file" 
+          ref="fileInputRef" 
+          style="display: none" 
+          @change="handleFileUpload" 
+        />
+        
+        <!-- 新增：显示出来的附件按钮 -->
+        <button 
+          class="attach-btn" 
+          @click="triggerFileInput"
+          title="上传文件到当前工作区"
+        >
+          <span class="attach-icon">📎</span>
+        </button>
+
         <el-input
           v-model="inputText"
           type="textarea"
@@ -84,6 +101,7 @@
           @keydown.enter="handleEnter"
           class="modern-input"
         />
+        <!-- 保持原来的发送按钮不变 -->
         <button 
           class="send-btn" 
           :class="{ active: inputText.trim().length > 0 }"
@@ -155,6 +173,62 @@ const handleEnter = (e) => {
   if (!e.shiftKey) {
     e.preventDefault()
     sendMessage()
+  }
+}
+
+// 处理文件上传
+// 引用文件输入框
+const fileInputRef = ref(null)
+
+// 触发隐藏的 input
+const triggerFileInput = () => {
+  fileInputRef.value.click()
+}
+
+// 处理文件上传
+const handleFileUpload = async (event) => {
+  const file = event.target.files[0]
+  if (!file) return
+
+  // 立即在聊天框里显示一条系统提示，告诉用户正在上传
+  messages.value.push({ 
+    role: 'agent', 
+    agentName: '系统管家', 
+    content: `正在上传文件：**${file.name}** ...` 
+  })
+  scrollToBottom()
+
+  const formData = new FormData()
+  formData.append('file', file)
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/upload/${taskId.value}`, {
+      method: 'POST',
+      body: formData // 注意：传 formData 时不要加 Content-Type header，浏览器会自动处理 boundary
+    })
+    
+    const result = await response.json()
+    if (response.ok && result.status === 'success') {
+      // 告诉用户上传成功，并提示他可以让 Agent 读取了
+      messages.value.push({ 
+        role: 'agent', 
+        agentName: '系统管家', 
+        content: `✅ 文件 **${file.name}** 已成功保存到工作区目录。\n\n你现在可以要求 Agent 读取或分析它了。` 
+      })
+    } else {
+      throw new Error(result.message)
+    }
+  } catch (error) {
+    ElMessage.error(`上传失败: ${error.message}`)
+    messages.value.push({ 
+      role: 'agent', 
+      agentName: '系统管家', 
+      content: `❌ 文件 **${file.name}** 上传失败。` 
+    })
+  } finally {
+    // 清空 input，允许重复上传同名文件
+    event.target.value = ''
+    scrollToBottom()
   }
 }
 
@@ -642,8 +716,35 @@ html.dark .message-row.user .text-bubble {
   width: 100%;
   margin-bottom: 12px;
 }
+
 .markdown-body th, .markdown-body td {
   border: 1px solid var(--el-border-color);
   padding: 8px 12px;
+}
+
+/* 附件按钮样式 */
+.attach-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background-color: transparent;
+  color: var(--el-text-color-regular);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.attach-btn:hover {
+  background-color: var(--el-fill-color-light);
+  color: var(--el-color-primary);
+}
+
+.attach-icon {
+  font-size: 1.2rem;
+  transform: rotate(-45deg); /* 让别针稍微倾斜一点更好看 */
 }
 </style>
