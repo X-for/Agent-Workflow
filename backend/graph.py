@@ -24,7 +24,7 @@ def build_dynamic_workflow(nodes_config: list, edges_config: list, checkpointer=
             description=node_info.get("description", ""), 
             tools=selected_tools,
             # 🌟 新增：提取前端传过来的模型信息
-            model_id=node_info.get("model", "deepseek-chat"),
+            model_id=node_info.get("models", "deepseek-chat"), 
             # provider=node_info.get("provider", "DEEPSEEK")
         )
         workflow.add_node(node_id, agent_instance.run_node)

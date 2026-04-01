@@ -9,7 +9,6 @@ load_dotenv()
 WORKSPACE_BASE = os.getenv("WORKSPACE_BASE", os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "custom_workspace")))
 
 
-
 # 独立功能：定义一个搜索工具
 @tool
 def web_search(query: str) -> str:
@@ -72,3 +71,41 @@ def read_document(filename: str, config: RunnableConfig) -> str:
         return f"{filename} 的内容是:\n{content}"
     except FileNotFoundError:
         return f"错误: 文件 {filename} 不存在。"
+
+
+@tool
+def make_dir(dir_name: str, config: RunnableConfig) -> str:
+    """当你需要创建一个新的文件夹来组织文件时，调用此工具."""
+    thread_id = config["configurable"].get("thread_id")
+    # 精准定位到该任务的专属文件夹
+    task_dir = os.path.join(WORKSPACE_BASE, thread_id)
+    new_dir_path = os.path.join(task_dir, dir_name)
+    
+    if not os.path.exists(new_dir_path):
+        os.makedirs(new_dir_path)
+        return f"目录 {dir_name} 已成功创建在 {task_dir} 目录下。"
+    else:
+        return f"目录 {dir_name} 已经存在于 {task_dir} 目录下。"
+    
+
+@tool
+def get_content_from_url(url: str) -> str:
+    """当你需要获取某个网页的内容时，调用此工具."""
+    print(f"\n[系统执行] 正在获取网页内容: {url}")
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # 如果请求失败会抛出异常
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        # 提取网页的标题和正文（这只是一个简单的示例，实际情况可能需要更复杂的解析）
+        title = soup.title.string if soup.title else "无标题"
+        paragraphs = soup.find_all('p')
+        content = "\n".join(p.get_text() for p in paragraphs[:5])  # 只取前5段
+        
+        return f"网页标题: {title}\n网页内容:\n{content}"
+        
+    except Exception as e:
+        return f"获取网页内容时发生错误: {str(e)}"
