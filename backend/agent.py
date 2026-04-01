@@ -9,16 +9,36 @@ load_dotenv()
 
 
 class Agent:
-    def __init__(self, name: str, description: str, tools: List[str]):
+    def __init__(self, name: str, description: str, tools: List[str], model_id: str = "deepseek-chat"):
         self.name = name
         self.description = description
         self.tools = tools
-        deepseek_model = ChatOpenAI(
-            model="deepseek-chat", 
-            api_key=os.environ.get("DEEPSEEK_API_KEY"), 
-            base_url="https://api.deepseek.com"
-        )
-        self.model = create_agent(deepseek_model, tools)
+        # === 动态选择大模型厂商和配置 ===
+        api_key = ""
+        base_url = ""
+        
+        if "gpt" in model_id:
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model_id, api_key=os.environ.get("OPENAI_API_KEY"))
+            
+        elif "claude" in model_id:
+            from langchain_anthropic import ChatAnthropic
+            llm = ChatAnthropic(model=model_id, api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            
+        elif "glm" in model_id: # 智谱
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model_id, api_key=os.environ.get("ZHIPU_API_KEY"), base_url="https://open.bigmodel.cn/api/paas/v4/")
+            
+        else:
+            # 默认兜底使用 DeepSeek
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(
+                model=model_id, # 这里可能是 deepseek-chat 或 deepseek-reasoner
+                api_key=os.environ.get("DEEPSEEK_API_KEY"), 
+                base_url="https://api.deepseek.com"
+            )
+            
+        self.model = create_agent(llm, tools)
     
     def run_node(self, state: dict) -> dict:
         # 1. 组装 System Prompt

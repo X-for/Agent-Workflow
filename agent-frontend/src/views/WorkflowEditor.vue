@@ -73,7 +73,16 @@
               <el-form-item label="节点名称">
                 <el-input v-model="activeNode.label" placeholder="给它起个名字..." />
               </el-form-item>
-
+              <el-form-item label="AI 模型">
+                <el-select v-model="activeNode.data.model" placeholder="请选择大脑模型" style="width: 100%">
+                  <el-option
+                    v-for="m in availableModels"
+                    :key="m.id"
+                    :label="m.name"
+                    :value="m.id"
+                  />
+                </el-select>
+              </el-form-item>
               <el-form-item label="系统提示词 (Prompt)">
                 <el-input 
                   v-model="activeNode.data.prompt" 
@@ -126,6 +135,7 @@ const getId = () => `agent_${idCounter++}`
 const panelVisible = ref(false)
 const activeNode = ref(null)
 const availableTools = ref([]) // 改为空数组，等待后端加载
+const availableModels = ref([]) // 模型列表
 const API_BASE_URL = 'http://localhost:8001'
 
 onMounted(async () => {
@@ -145,6 +155,16 @@ onMounted(async () => {
   } catch (e) {
     ElMessage.error('无法获取后端工具列表')
   }
+  // 1.5 从后端获取模型列表（如果需要）
+  try {
+    const resModels = await fetch(`${API_BASE_URL}/api/models`)
+    if (resModels.ok) {
+      const dataModels = await resModels.json()
+      availableModels.value = dataModels.models
+    }
+  } catch (e) {
+    console.warn('获取模型列表失败', e)
+  }
 
   // 2. 从本地读取当前任务以前保存的图纸
   const savedData = localStorage.getItem(`workflow_${taskId}`)
@@ -159,7 +179,7 @@ onMounted(async () => {
     nodes.value = [{
       id: 'node_0', type: 'default', position: { x: 300, y: 150 },
       label: '🟢 核心思考节点',
-      data: { prompt: '你是一个强大的 AI 助手。', tools: [] },
+      data: { prompt: '你是一个强大的 AI 助手。', tools: [], models: 'deepseek-chat' },
       style: { 
         borderRadius: '12px', padding: '10px 20px', border: '1px solid var(--el-border-color)',
         backgroundColor: 'var(--el-bg-color-overlay)', color: 'var(--el-text-color-primary)',
@@ -168,6 +188,7 @@ onMounted(async () => {
     }]
   }
 })
+
 
 // // 保存逻辑：将画布存入 localStorage
 // const saveWorkflow = () => {
@@ -285,6 +306,9 @@ const saveWorkflow = async () => {
     ElMessage.warning('本地已保存，但同步到后端失败，请检查网络。')
   }
 }
+
+
+
 </script>
 
 <style scoped>

@@ -261,7 +261,8 @@ const sendMessage = async () => {
     id: n.id,
     name: n.label, // 后端要 name，我们把 label 给它
     description: n.data?.prompt || '', // 后端要 description，我们把 prompt 给它
-    tools: n.data?.tools || [] // 确保 tools 也是个数组
+    tools: n.data?.tools || [],  // 确保 tools 也是个数组
+    models: n.data?.models || 'deepseek-chat' // 传递模型信息
   }))
 
   // 确保 edges 格式也是后端想要的 (Vue Flow 默认的连线是 source 和 target，但你的后端可能是 from 和 to，我们做个保险转换)

@@ -180,6 +180,56 @@ async def duplicate_workflow(request: dict):
     except Exception as e:
         return {"status": "error", "message": f"复制失败: {str(e)}"}
 
+@api.get("/api/models")
+async def get_models():
+    """扫描 .env 中的配置，返回可用的模型列表"""
+    available_models = []
+    env_vars = os.environ
+    
+    # 检查 DeepSeek
+    if env_vars.get("DEEPSEEK_API_KEY"):
+        available_models.append({
+            "id": "deepseek-chat",
+            "name": "DeepSeek V3 (通用)",
+            "provider": "DEEPSEEK"
+        })
+        available_models.append({
+            "id": "deepseek-reasoner",
+            "name": "DeepSeek R1 (推理)",
+            "provider": "DEEPSEEK"
+        })
+        
+    # 检查 OpenAI
+    if env_vars.get("OPENAI_API_KEY"):
+        available_models.append({
+            "id": "gpt-4o",
+            "name": "GPT-4o",
+            "provider": "OPENAI"
+        })
+        available_models.append({
+            "id": "gpt-4o-mini",
+            "name": "GPT-4o Mini",
+            "provider": "OPENAI"
+        })
+        
+    # 检查通义千问 / 阿里云
+    if env_vars.get("QWEN_API_KEY") or env_vars.get("DASHSCOPE_API_KEY"):
+        available_models.append({
+            "id": "qwen-max",
+            "name": "Qwen Max (通义千问)",
+            "provider": "QWEN"
+        })
+
+    # 如果没配任何 Key，至少给个默认的占位符防错
+    if not available_models:
+         available_models.append({
+            "id": "deepseek-chat",
+            "name": "未配置 API Key (默认 DeepSeek)",
+            "provider": "DEEPSEEK"
+        })
+        
+    return {"models": available_models}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.api:api", host="0.0.0.0", port=8001, reload=True)
