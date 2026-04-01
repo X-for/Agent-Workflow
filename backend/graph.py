@@ -21,7 +21,7 @@ def debate_router(state):
         print("\n[系统警告] 达到最大辩论次数，强制跳出循环！")
         return "next_node"
     
-    if "<APPROVE>" in last_message:
+    if "PASS" in last_message:
         return "next_node" # 走向下一个节点
     else:
         return "loop_back" # 打回重做
