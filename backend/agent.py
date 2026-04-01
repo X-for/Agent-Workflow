@@ -43,7 +43,8 @@ class Agent:
             
         self.model = create_agent(llm, tools)
     
-    def run_node(self, state: dict, config: dict) -> dict:
+    def run_node(self, state: dict, config: dict = None, **kwargs) -> dict:
+        config = config or {}
         # 1. 组装 System Prompt
         system_prompt = f"你是一个{self.name}。职责：{self.description}。"
         
@@ -62,7 +63,7 @@ class Agent:
                 msg.name = self.name # 确保每个 chunk 都带上这个节点的名字，方便后续调试和记录
                 final_text += msg.content   
         
-        # 3. 核心改变：我们不再只是更新 current_draft，
+        # 3. 我们不再只是更新 current_draft，
         # 我们要把自己的回答作为一个 AIMessage 返回，这样它会自动被“追加”到下个节点的 state["messages"] 里！
         return_msg = AIMessage(content=final_text, name=self.name)
         
