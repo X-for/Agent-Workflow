@@ -43,6 +43,7 @@
           @connect="onConnect"
           @node-click="onNodeClick"
           @pane-click="closePanel"
+          :default-edge-options="defaultEdgeOptions"
         >
           <Background pattern-color="var(--el-border-color)" :gap="24" :size="2" />
           <Controls class="modern-controls" />
@@ -82,6 +83,9 @@
                     :value="m.id"
                   />
                 </el-select>
+              </el-form-item>
+              <el-form-item label="是否为审核节点">
+                <el-switch v-model="activeNode.data.isReviewer" />
               </el-form-item>
               <el-form-item label="系统提示词 (Prompt)">
                 <el-input 
@@ -137,7 +141,9 @@ const activeNode = ref(null)
 const availableTools = ref([]) // 改为空数组，等待后端加载
 const availableModels = ref([]) // 模型列表
 const API_BASE_URL = 'http://localhost:8001'
-
+const defaultEdgeOptions = {
+  markerEnd: 'arrowclosed'
+}
 onMounted(async () => {
   // 1. 从后端获取真实 Tools
   try {
@@ -260,7 +266,7 @@ const onDrop = (event) => {
   const position = screenToFlowCoordinate({ x: event.clientX, y: event.clientY })
   const newNode = {
     id: getId(), type: 'default', position, label: `🤖 新建 Agent`,
-    data: { prompt: '', tools: [] },
+    data: { prompt: '', tools: [], isReviewer: false },
     style: { 
       borderRadius: '12px', padding: '10px 20px', border: '2px solid transparent',
       backgroundColor: 'var(--el-bg-color-overlay)', color: 'var(--el-text-color-primary)',
@@ -276,7 +282,8 @@ const onConnect = (connection) => {
   
   addEdges({
     ...connection,
-    data: { ...(connection.data || {}), is_debate: !!isDebate }
+    data: { ...(connection.data || {}), is_debate: !!isDebate },
+    style: is_debate ? { stroke: '#e74c3c', strokeWidth: 2 } : undefined
   })
 }
 
