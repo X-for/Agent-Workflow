@@ -47,26 +47,41 @@
                 <code>{{ msg.toolCall.args }}</code>
               </div>
             </div>
-            
-            <!-- 正文气泡 -->
-            <div class="text-bubble" v-if="msg.content || msg.loading">
-             <!-- 使用 v-html 动态渲染解析好的 Markdown HTML -->
-              <div 
-                v-if="msg.content" 
-                class="markdown-body"
-                v-html="md.render(msg.content)"
-              ></div>
-              
-              <!-- 优雅的思考动画 -->
-              <div v-if="msg.loading" class="thinking-indicator">
-                <span class="dot"></span>
-                <span class="dot"></span>
-                <span class="dot"></span>
+            <!-- 使用 v-show 控制整个内容区域的显示/隐藏 -->
+            <div v-show="!msg.isCollapsed">
+              <!-- 如果 Agent 调用了工具 -->
+              <div v-if="msg.toolCall" class="tool-call-box">
+                <div class="tool-header">
+                  <span class="tool-icon">🛠️</span>
+                  <span class="tool-title">调用工具：{{ msg.toolCall.name }}</span>
+                </div>
+                <div class="tool-code">
+                  <code>{{ msg.toolCall.args }}</code>
+                </div>
               </div>
+              <!-- 正文气泡 -->
+              <div class="text-bubble" v-if="msg.content || msg.loading">
+              <!-- 使用 v-html 动态渲染解析好的 Markdown HTML -->
+                <div 
+                  v-if="msg.content" 
+                  class="markdown-body"
+                  v-html="md.render(msg.content)"
+                ></div>
+                
+                <!-- 优雅的思考动画 -->
+                <div v-if="msg.loading" class="thinking-indicator">
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                  <span class="dot"></span>
+                </div>
+              </div>
+            </div>
+            <!-- 折叠后的精简提示 -->
+            <div v-show="msg.isCollapsed" class="collapsed-tip text-bubble">
+              <i>已折叠的节点输出...</i>
             </div>
           </div>
         </div>
-        
         <!-- 底部占位符，防止最后一条消息被输入框挡住 -->
         <div class="scroll-anchor"></div>
       </div>
@@ -365,6 +380,14 @@ const sendMessage = async () => {
                   if (isAtBottom) {
                     scrollToBottom()
                   }
+                }
+                    const agentMessages = messages.value.filter(m => m.role === 'agent');
+                if (agentMessages.length > 1) {
+                  for (let i = 0; i < agentMessages.length - 1; i++) {
+                    agentMessages[i].isCollapsed = true;
+                  }
+                  // 确保最后一条也就是最终结果是展开的
+                  agentMessages[agentMessages.length - 1].isCollapsed = false;
                 }
               } catch (err) {
                 console.warn("解析 chunk 失败:", jsonStr)
@@ -788,5 +811,19 @@ html.dark .message-row.user .text-bubble {
 .attach-icon {
   font-size: 1.2rem;
   transform: rotate(-45deg); /* 让别针稍微倾斜一点更好看 */
+}
+
+.sender-header {
+  display: flex;
+  align-items: center;
+}
+.collapsed-tip {
+  color: var(--el-text-color-secondary);
+  font-size: 0.85rem;
+  background-color: var(--el-fill-color-light) !important;
+  cursor: pointer;
+}
+.collapsed-tip:hover {
+  background-color: var(--el-fill-color) !important;
 }
 </style>

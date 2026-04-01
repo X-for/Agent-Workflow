@@ -60,9 +60,12 @@ async def chat_endpoint(request: ChatRequest):
                     chunk_content = event["data"]["chunk"].content
                     
                     if chunk_content:
-                        # 🌟 直接从元数据里抓取我们强行注入的专属标签！
-                        real_agent_name = event.get("metadata", {}).get("MY_AGENT_NAME", "Agent 网络")
-                        
+                        # 🌟 改成从 tags 里提取正确的 Agent 名字！
+                        real_agent_name = "Agent 网络"
+                        for tag in event.get("tags", []):
+                            if tag.startswith("AGENT_NAME:"):
+                                real_agent_name = tag.split("AGENT_NAME:", 1)[1]
+                                break
                         payload = {
                             "content": chunk_content, 
                             "agentName": real_agent_name
