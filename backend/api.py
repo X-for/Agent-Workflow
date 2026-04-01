@@ -121,8 +121,9 @@ async def get_tools():
     available_tools = {}
     for name, obj in inspect.getmembers(tools):
         if hasattr(obj, "name") and hasattr(obj, "description"):
-            module = inspect.getmodule(obj)
-            module_name = module.__name__.split(".")[-1] if module else "other"
+            real_func = getattr(obj, "func", None)
+            module_full_name = getattr(real_func, "__module__", "other")
+            module_name = module_full_name.split(".")[-1]
             if module_name in category_map:
                 cat_id = module_name
             else:
