@@ -58,17 +58,17 @@ async def chat_endpoint(request: ChatRequest):
             async for event in app.astream_events(initial_state, config=config, version="v2"):
                 if event["event"] == "on_chat_model_stream":
                     chunk_content = event["data"]["chunk"].content
-                    node_id = event.get("metadata", {}).get("langgraph_node", "Unknown Node")
-                    node_name = id_to_name.get(node_id, "Agent 网络")
+                    
                     if chunk_content:
-                        # 🌟 把 agentName 也一起打包进 JSON 发给前端
+                        # 🌟 直接从元数据里抓取我们强行注入的专属标签！
+                        real_agent_name = event.get("metadata", {}).get("MY_AGENT_NAME", "Agent 网络")
+                        
                         payload = {
                             "content": chunk_content, 
-                            "agentName": node_name
+                            "agentName": real_agent_name
                         }
                         yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-                        
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 # ✨ 新增：获取历史记录接口

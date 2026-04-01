@@ -43,28 +43,35 @@ class Agent:
             
         self.model = create_agent(llm, tools)
     
+    # 注意：参数必须要有 config
     def run_node(self, state: dict, config: dict) -> dict:
-        # 1. 组装 System Prompt
+        current_task = state.get("task", "")
+        draft = state.get("current_draft", "")
+        
+        print(f"-> [{self.name}] 正在处理任务: {current_task}")
+        
         system_prompt = f"你是一个{self.name}。职责：{self.description}。"
-        
-        # 2. 读取整个上下文消息（这就是为什么后面的 Agent 能知道前面的 Agent 说了啥）
-        messages = state.get("messages", [])
-        
-        # 将系统提示词插在最前面传给大模型
-        inputs = {"messages": [SystemMessage(content=system_prompt)] + messages}
+        user_prompt = f"用户的原始任务是：{current_task}"
+        if draft:
+            user_prompt += f"\n\n=== 前面节点的处理结果 ===\n{draft}\n\n==================\n请基于上述结果继续你的处理工作。"
+            
+        inputs = {"messages": [SystemMessage(content=system_prompt), ("user", user_prompt)]}
         
         final_text = ""
         
-        for msg, metadata in self.model.stream(inputs, config=config,  stream_mode="messages"):
+        # 🌟 核心杀招：复制 config，并强行把当前 Agent 的名字塞进 metadata 里！
+        # 这样底层大模型吐出的每一个流式字，都会被 LangChain 自动打上这个名字烙印！
+        run_config = config.copy()
+        run_config["metadata"] = {**run_config.get("metadata", {}), "MY_AGENT_NAME": self.name}
+        
+        # 🌟 把改过手脚的 run_config 传给大模型
+        for msg, metadata in self.model.stream(inputs, config=run_config, stream_mode="messages"):
             if isinstance(msg, AIMessageChunk) and msg.content:
-                msg.name = self.name # 确保每个 chunk 都带上这个节点的名字，方便后续调试和记录
                 final_text += msg.content   
         
-        # 3. 核心改变：我们不再只是更新 current_draft，
-        # 我们要把自己的回答作为一个 AIMessage 返回，这样它会自动被“追加”到下个节点的 state["messages"] 里！
         return_msg = AIMessage(content=final_text, name=self.name)
         
         return {
             "current_draft": final_text, 
-            "messages": [return_msg] # 这里返回列表，LangGraph 底层会自动把它拼接到总记录里
+            "messages": [return_msg]
         }
