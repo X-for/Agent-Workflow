@@ -380,21 +380,34 @@ const sendMessage = async () => {
                 // LangGraph 会有一些内部节点(比如 __start__), 我们过滤掉它
                 if (incomingAgent.startsWith('__')) continue
                 
-                // 获取当前界面的最后一个消息气泡
-                const lastMsg = messages.value[messages.value.length - 1]
-                
-                // 🌟 核心判断：如果最后一条消息就是当前 Agent 说的，直接追加字
-                if (lastMsg.role === 'agent' && (lastMsg.agentName === incomingAgent || lastMsg.agentName === 'Agent 网络')) {
-                  lastMsg.agentName = incomingAgent // 更新正确的名称
-                  lastMsg.content += dataObj.content
-                  lastMsg.loading = false
+                // 🌟 支持并行 Agent 同时打字的核心逻辑
+                let targetMsg = null
+
+                // 从后往前找，寻找属于当前 Agent 的聊天气泡
+                for (let i = messages.value.length - 1; i >= 0; i--) {
+                  const m = messages.value[i]
+                  if (m.role === 'user') break // 遇到用户的提问，说明这轮找完了，停止寻找
+                  
+                  // 如果找到了名字匹配的，或者找到了最初那个还没被认领的空初始气泡，就锁定它
+                  if (m.agentName === incomingAgent || (m.agentName === 'Agent 网络' && m.content === '')) {
+                    targetMsg = m
+                    break
+                  }
+                }
+
+                if (targetMsg) {
+                  // 找到了专属气泡，直接往里追加字
+                  targetMsg.agentName = incomingAgent
+                  targetMsg.content += dataObj.content
+                  targetMsg.loading = false
                 } else {
-                  // 🌟 如果换人了 (说明流转到了下一个节点)，我们新建一个聊天气泡！
+                  // 没找到专属气泡（说明这个并行的 Agent 是第一次发声），为它新建一个！
                   messages.value.push({
                     role: 'agent',
                     agentName: incomingAgent,
                     content: dataObj.content,
-                    loading: false
+                    loading: false,
+                    isCollapsed: false // 新出来的并行任务必须让用户看到
                   })
                 }
                 
