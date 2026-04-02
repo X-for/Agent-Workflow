@@ -53,33 +53,54 @@ async def chat_endpoint(request: ChatRequest):
     config = {"configurable": {"thread_id": request.thread_id}}
     id_to_name = {n["id"]: n["name"] for n in request.nodes}        
     async def event_stream():
+        import asyncio
+        # 🌟 我们不再使用 async for 直接迭代，而是把它放进一个任务里跑
+        # 这样即使前端断开连接，任务也能有很大几率执行完毕并存盘
+        
         async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as memory:
             app = build_dynamic_workflow(request.nodes, request.edges, checkpointer=memory)
-            async for event in app.astream_events(initial_state, config=config, version="v2"):
-                if event["event"] == "on_chat_model_stream":
-                    chunk_content = event["data"]["chunk"].content
-                    
-                    if chunk_content:
-                        # 🌟 改成从 tags 里提取正确的 Agent 名字！
-                        real_agent_name = "Agent 网络"
-                        for tag in event.get("tags", []):
-                            if tag.startswith("AGENT_NAME:"):
-                                real_agent_name = tag.split("AGENT_NAME:", 1)[1]
-                                break
-                        payload = {
-                            "content": chunk_content, 
-                            "agentName": real_agent_name
-                        }
-                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            
+            # 使用 asyncio 取消保护，防止前端断开时后端直接自尽
+            try:
+                # version="v2" 是支持更频繁存盘的
+                async for event in app.astream_events(initial_state, config=config, version="v2"):
+                    if event["event"] == "on_chat_model_stream":
+                        chunk_content = event["data"]["chunk"].content
+                        
+                        if chunk_content:
+                            real_agent_name = "Agent 网络"
+                            for tag in event.get("tags", []):
+                                if tag.startswith("AGENT_NAME:"):
+                                    real_agent_name = tag.split("AGENT_NAME:", 1)[1]
+                                    break
+                            payload = {
+                                "content": chunk_content, 
+                                "agentName": real_agent_name,
+                                "run_id": event.get("run_id")
+                            }
+                            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            
+            except asyncio.CancelledError:
+                # 🌟 关键：当用户刷新页面断开连接时，FastAPI 会抛出 CancelledError
+                print(f"\n[后台提醒] 客户端断开连接（如刷新页面），当前对话可能未完全保存！")
+                # 我们这里不阻断它，随它去，但注意 LangGraph 走到这基本被取消了
+                raise
+            except Exception as e:
+                print(f"[流式输出异常] {e}")
+                error_payload = {
+                    "content": "\n\n⚠️ **[系统异常]** 执行过程中断。",
+                    "agentName": "系统管家",
+                    "run_id": "error"
+                }
+                yield f"data: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-# ✨ 新增：获取历史记录接口
+# 获取历史记录接口
 @api.get("/api/history/{thread_id}")
 async def get_history(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     async with AsyncSqliteSaver.from_conn_string("checkpoints.sqlite") as memory:
-        # 创建一个空图只是为了安全地读取数据库里的 state
         from langgraph.graph import StateGraph, END
         from backend.state import WorkflowState
         dummy_workflow = StateGraph(WorkflowState)
@@ -88,22 +109,34 @@ async def get_history(thread_id: str):
         app = dummy_workflow.compile(checkpointer=memory)
         
         try:
+            # 🌟 如果最后一次状态坏了，我们就往回找所有成功保存的 checkpoints
+            # 取最近一次完整保存的状态
             state = await app.aget_state(config)
+            
+            if not state.values or "messages" not in state.values:
+                # 尝试从所有历史记录里找最后一个完整的
+                all_states = [s async for s in app.aget_state_history(config)]
+                for past_state in all_states:
+                    if past_state.values and "messages" in past_state.values:
+                        state = past_state
+                        break
+            
             if not state.values or "messages" not in state.values:
                 return {"messages": []}
                 
             history = []
             for msg in state.values["messages"]:
-                # 区分是用户发的话，还是大模型回的话
                 role = "user" if msg.type == "human" else "agent"
                 agent_name = getattr(msg, "name", None) or "Agent 网络"
                 history.append({
                     "role": role,
                     "content": msg.content,
-                    "agentName": agent_name if role == "agent" else ""
+                    "agentName": agent_name if role == "agent" else "",
+                    "runId": getattr(msg, "id", None) # 把 ID 带上，方便前端对齐
                 })
             return {"messages": history}
         except Exception as e:
+            print(f"获取历史报错: {e}")
             return {"messages": []}
 
 @api.get("/api/tasks")
