@@ -67,48 +67,48 @@ def build_dynamic_workflow(nodes_config: list, edges_config: list, checkpointer=
         from_node = edge.get("source", edge.get("from"))
         to_node = edge.get("target", edge.get("to"))
         workflow.add_edge(from_node, to_node)
-
     # 第三步：处理 debate 的线（合并同源的线）
-    # 对于每个带审核逻辑的节点，它应该有两条出线（一条通过，一条打回）
     for from_node, edges in debate_edges_by_source.items():
         next_node_target = None
         loop_back_target = None
         
         for edge in edges:
             to_node = edge.get("target", edge.get("to"))
-            # 假设前端通过 is_reject 标记这是一条打回的线
-            # 如果你前端用的是其他标记，比如 condition="reject"，这里改为 edge.get("condition") == "reject"
             if edge.get("is_reject"): 
                 loop_back_target = to_node
             else:
                 next_node_target = to_node
 
-        # 如果找不到其中一条线，给个容错的默认行为，防止报错
         if not next_node_target:
             next_node_target = END
         if not loop_back_target:
-            loop_back_target = from_node # 退而求其次，默认打回给自己
+            loop_back_target = from_node 
             
-        # 针对这个审查节点，只注册一次条件路由
         workflow.add_conditional_edges(
             from_node, 
             debate_router,
             {
-                "next_node": next_node_target, # 满意了，走向目标
-                "loop_back": loop_back_target  # 不满意，走向打回的节点
+                "next_node": next_node_target, 
+                "loop_back": loop_back_target  
             }
         )
         
-    # 如果没有指定起点，默认将第一个节点作为起点，最后一个作为终点
+    # 如果没有指定起点，默认将第一个节点作为起点
     if nodes_config:
         workflow.set_entry_point(nodes_config[0]["id"])
         
-        # ⚠️ 注意：这行代码有隐患，因为你可能有分支，不一定最后一条配置就是真正的终点。
-        # 建议只有在确实需要的时候才硬编码连接到 END。
-        # 这里我先保留你的原逻辑，但加上容错判断。
-        last_node_id = nodes_config[-1]["id"]
-        # 检查最后一个节点是否已经有出去了的普通的线，避免重复连导致逻辑错乱（可选优化）
-        workflow.add_edge(last_node_id, END)
+    # 🌟 核心修改：删除了强制把最后一个节点连接到 END 的瞎猜逻辑！
+    # 🌟 新增逻辑：我们找出所有“没有向外连线”的节点（不管是普通线还是审核线），
+    # 🌟 把它们安全地连接到 END。这才是正确的状态机收尾方式。
+    
+    all_source_nodes = set()
+    for edge in edges_config:
+        all_source_nodes.add(edge.get("source", edge.get("from")))
+        
+    for node in nodes_config:
+        if node["id"] not in all_source_nodes:
+            # 只有当这个节点真的没有任何出路时，才给它连到 END
+            workflow.add_edge(node["id"], END)
         
     # 编译并挂载传进来的记忆插件
     return workflow.compile(checkpointer=checkpointer)

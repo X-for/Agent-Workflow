@@ -309,6 +309,7 @@ const sendMessage = async () => {
     from: e.source, // Vue Flow 叫 source，后端叫 from
     to: e.target,    // Vue Flow 叫 target，后端叫 to
     is_debate: e.data?.is_debate === true, // 如果有辩论属性，也传递给后端  
+    is_reject: e.data?.is_reject === true, // 
   }))
 
   const payload = {
