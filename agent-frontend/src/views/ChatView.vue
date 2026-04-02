@@ -380,34 +380,48 @@ const sendMessage = async () => {
                 // LangGraph 会有一些内部节点(比如 __start__), 我们过滤掉它
                 if (incomingAgent.startsWith('__')) continue
                 
-                // 🌟 支持并行 Agent 同时打字的核心逻辑
+                // 🌟 支持并行 Agent + 循环辩论 的终极逻辑
                 let targetMsg = null
 
                 // 从后往前找，寻找属于当前 Agent 的聊天气泡
                 for (let i = messages.value.length - 1; i >= 0; i--) {
                   const m = messages.value[i]
-                  if (m.role === 'user') break // 遇到用户的提问，说明这轮找完了，停止寻找
+                  if (m.role === 'user') break 
                   
-                  // 如果找到了名字匹配的，或者找到了最初那个还没被认领的空初始气泡，就锁定它
-                  if (m.agentName === incomingAgent || (m.agentName === 'Agent 网络' && m.content === '')) {
+                  // 1. 如果找到了一个处于【初始空状态】的共享气泡，抢占它！
+                  if (m.agentName === 'Agent 网络' && m.content === '') {
                     targetMsg = m
                     break
+                  }
+                  
+                  // 2. 如果找到了名字匹配的，而且它【正在思考/打字中】(loading === true)
+                  // 说明这是并发打字过程中的队友，找到家了！
+                  if (m.agentName === incomingAgent && m.loading === true) {
+                    targetMsg = m
+                    break
+                  }
+                  
+                  // 🚨 核心防御：如果你找到了名字匹配的，���它 loading === false，
+                  // 说明那已经是他在上一个循环里说的话了，千万别往里加了，直接跳出循环让他建新气泡！
+                  if (m.agentName === incomingAgent && m.loading === false) {
+                    break 
                   }
                 }
 
                 if (targetMsg) {
-                  // 找到了专属气泡，直接往里追加字
+                  // 找到了合适的正在打字的专属气泡
                   targetMsg.agentName = incomingAgent
                   targetMsg.content += dataObj.content
-                  targetMsg.loading = false
+                  // 只要还在继续打字，我们就保持它处于 loading 激活状态
+                  targetMsg.loading = true 
                 } else {
-                  // 没找到专属气泡（说明这个并行的 Agent 是第一次发声），为它新建一个！
+                  // 没找到（可能是并发新来的，也可能是循环新一轮开始的），新建一个气泡！
                   messages.value.push({
                     role: 'agent',
                     agentName: incomingAgent,
                     content: dataObj.content,
-                    loading: false,
-                    isCollapsed: false // 新出来的并行任务必须让用户看到
+                    loading: true, // 🌟 新建的气泡设为 true，表示这轮的他在打字
+                    isCollapsed: false 
                   })
                 }
                 
