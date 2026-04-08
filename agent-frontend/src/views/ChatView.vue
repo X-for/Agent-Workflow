@@ -283,8 +283,7 @@ const sendMessage = async () => {
   isSending.value = true
   scrollToBottom()
 
-  // 2. 准备发给后端的数据（需要带上当前任务的图纸信息）
-  // 尝试从本地存储中获取刚才编排好的节点和连线
+  // 2. 准备发给后端的数据
   const savedData = localStorage.getItem(`workflow_${taskId.value}`)
   let nodes = []
   let edges = []
@@ -294,22 +293,19 @@ const sendMessage = async () => {
     edges = parsed.edges || []
   }
 
-// ====== payload：======
-  // 将前端的 nodes 映射成后端 backend/graph.py 想要的格式
   const formattedNodes = nodes.map(n => ({
     id: n.id,
-    name: n.label, // 后端要 name，我们把 label 给它
-    description: n.data?.prompt || '', // 后端要 description，我们把 prompt 给它
-    tools: n.data?.tools || [],  // 确保 tools 也是个数组
-    models: n.data?.models || 'deepseek-chat' // 传递模型信息
+    name: n.label,
+    description: n.data?.prompt || '',
+    tools: n.data?.tools || [],
+    models: n.data?.models || 'deepseek-chat'
   }))
 
-  // 确保 edges 格式也是后端想要的 (Vue Flow 默认的连线是 source 和 target，但你的后端可能是 from 和 to，我们做个保险转换)
   const formattedEdges = edges.map(e => ({
-    from: e.source, // Vue Flow 叫 source，后端叫 from
-    to: e.target,    // Vue Flow 叫 target，后端叫 to
-    is_debate: e.data?.is_debate === true, // 如果有辩论属性，也传递给后端  
-    is_reject: e.data?.is_reject === true, // 
+    from: e.source,
+    to: e.target,
+    is_debate: e.data?.is_debate === true,
+    is_reject: e.data?.is_reject === true,
   }))
 
   const payload = {
@@ -318,7 +314,6 @@ const sendMessage = async () => {
     nodes: formattedNodes,
     edges: formattedEdges
   }
-// ==========================
 
   // 3. 在聊天区创建一个空的 Agent 消息框，准备接收流式打字
   const agentResponseIndex = messages.value.length
@@ -344,10 +339,9 @@ const sendMessage = async () => {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // 关闭 Loading 状态，准备打字
+    // 关闭初始占位气泡的 Loading 状态（准备打字）
     messages.value[agentResponseIndex].loading = false
 
-    // 获取响应的可读流
     const reader = response.body.getReader()
     const decoder = new TextDecoder('utf-8')
     let done = false
@@ -359,12 +353,8 @@ const sendMessage = async () => {
       done = readerDone
       
       if (value) {
-        // 把新数据加入缓冲池
         buffer += decoder.decode(value, { stream: true })
-        // 按 SSE 的标准结束符（双换行）进行切割
         const parts = buffer.split('\n\n')
-        
-        // 最后一个元素可能是不完整的数据块，留到下一次循环处理
         buffer = parts.pop()
         
         for (const part of parts) {
@@ -372,68 +362,54 @@ const sendMessage = async () => {
             const jsonStr = part.replace('data: ', '').trim()
             if (jsonStr) {
               try {
-                // 安全解析 JSON，完美保留所有换行和缩进
                 const dataObj = JSON.parse(jsonStr)
-                // 后端传过来的当前发言人
                 const incomingAgent = dataObj.agentName || 'Agent 网络'
                 
-                // LangGraph 会有一些内部节点(比如 __start__), 我们过滤掉它
                 if (incomingAgent.startsWith('__')) continue
                 
-                // 🌟 支持并行 Agent + 循环辩论 的终极逻辑
                 let targetMsg = null
 
-                // 从后往前找，寻找属于当前 Agent 的聊天气泡
                 for (let i = messages.value.length - 1; i >= 0; i--) {
                   const m = messages.value[i]
                   if (m.role === 'user') break 
                   
-                  // 1. 如果找到了一个处于【初始空状态】的共享气泡，抢占它！
                   if (m.agentName === 'Agent 网络' && m.content === '') {
                     targetMsg = m
                     break
                   }
                   
-                  // 2. 如果找到了名字匹配的，而且它【正在思考/打字中】(loading === true)
-                  // 说明这是并发打字过程中的队友，找到家了！
                   if (m.agentName === incomingAgent && m.loading === true) {
                     targetMsg = m
                     break
                   }
                   
-                  // 🚨 核心防御：如果你找到了名字匹配的，���它 loading === false，
-                  // 说明那已经是他在上一个循环里说的话了，千万别往里加了，直接跳出循环让他建新气泡！
+                  // 🚨 核心防御：现在它能生效了！
                   if (m.agentName === incomingAgent && m.loading === false) {
                     break 
                   }
                 }
 
                 if (targetMsg) {
-                  // 找到了合适的正在打字的专属气泡
                   targetMsg.agentName = incomingAgent
                   targetMsg.content += dataObj.content
-                  // 只要还在继续打字，我们就保持它处于 loading 激活状态
                   targetMsg.loading = true 
                 } else {
-                  // 没找到（可能是并发新来的，也可能是循环新一轮开始的），新建一个气泡！
                   messages.value.push({
                     role: 'agent',
                     agentName: incomingAgent,
                     content: dataObj.content,
-                    loading: true, // 🌟 新建的气泡设为 true，表示这轮的他在打字
+                    loading: true,
                     isCollapsed: false 
                   })
                 }
                 
                 const el = chatHistoryRef.value
                 if (el) {
-                  // 判断距离底部的距离是否小于 100 像素
                   const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 100
                   if (isAtBottom) {
                     scrollToBottom()
                   }
                 }
-                
               } catch (err) {
                 console.warn("解析 chunk 失败:", jsonStr)
               }
@@ -442,12 +418,23 @@ const sendMessage = async () => {
         }
       }
     }
+    
+    // 🌟 【修复关键点】：流式数据接收彻底完毕！
+    // 强制把所有 Agent 气泡的 loading 状态设为 false，标记它们已经“完结”
+    messages.value.forEach(msg => {
+      if (msg.role === 'agent') {
+        msg.loading = false;
+      }
+    });
+
     // 流式数据接收完毕，更新折叠状态
     updateCollapseState()
   } catch (error) {
     console.error('对话请求失败:', error)
-    messages.value[agentResponseIndex].loading = false
-    messages.value[agentResponseIndex].content = '⚠️ 连接后端失败或发生错误，请检查 FastAPI 服务是否正常运行。'
+    if (messages.value[agentResponseIndex]) {
+        messages.value[agentResponseIndex].loading = false
+        messages.value[agentResponseIndex].content = '⚠️ 连接后端失败或发生错误，请检查 FastAPI 服务是否正常运行。'
+    }
     ElMessage.error('对话请求失败')
   } finally {
     // 无论成功还是失败，最后都解除发送按钮的禁用状态
