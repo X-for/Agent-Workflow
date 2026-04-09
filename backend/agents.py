@@ -14,15 +14,24 @@ def merge_dicts(a: dict, b: dict) -> dict:
     res.update(b)
     return res
 
-# 2. 修改共享状态 (State)
+# 新增：工具调用队列的归约器（支持并发添加工具，支持节点清空队列）
+def merge_tool_calls(left: Optional[list], right: Optional[list]) -> list:
+    if not left: left = []
+    if not right: right = []
+    # 如果 right 是一个空列表，说明这是由 tool_executor 发出的清空指令
+    if right == []:
+        return []
+    # 否则，如果是多个并发节点发出的工具调用，将它们合并到一个列表中执行
+    return left + right
+
+# 修改：在 AgentState 中使用 Annotated 包装 tool_calls
 class AgentState(TypedDict):
-    # 核心系统级字段保留不变
     user_input: str
-    tool_calls: Optional[list]
+    tool_calls: Annotated[list, merge_tool_calls] # 核心修改点
     is_approved: bool
     draft: Optional[str]
     feedback: Optional[str]
-    context_date: Annotated[dict, merge_dicts]
+    context_data: Annotated[dict, merge_dicts]
 
 
 def tool_executor_node(state: AgentState) -> dict:
