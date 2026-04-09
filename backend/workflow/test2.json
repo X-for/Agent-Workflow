@@ -75,23 +75,53 @@
     {
       "from": "tool_executor",
       "to": "web_searcher"
-    },
-    {
-      "from": "local_searcher",
-      "to": "summarizer"
-    },
-    {
-      "from": "deep_researcher",
-      "to": "summarizer"
     }
   ],
   "conditional_edges": [
     {
       "from": "web_searcher",
-      "router": "check_tool_calls",
+      "router": "tool_or_fan_in_router",
+      "router_args": {
+        "required_keys": [
+          "web_results",
+          "local_results",
+          "research_results"
+        ]
+      },
       "mapping": {
         "execute_tools": "tool_executor",
-        "next_step": "summarizer"
+        "ready": "summarizer",
+        "wait": "END"
+      }
+    },
+    {
+      "from": "local_searcher",
+      "router": "fan_in_router",
+      "router_args": {
+        "required_keys": [
+          "web_results",
+          "local_results",
+          "research_results"
+        ]
+      },
+      "mapping": {
+        "ready": "summarizer",
+        "wait": "END"
+      }
+    },
+    {
+      "from": "deep_researcher",
+      "router": "fan_in_router",
+      "router_args": {
+        "required_keys": [
+          "web_results",
+          "local_results",
+          "research_results"
+        ]
+      },
+      "mapping": {
+        "ready": "summarizer",
+        "wait": "END"
       }
     }
   ]

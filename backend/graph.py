@@ -1,6 +1,7 @@
 import agents  # 直接导入整个模块，而不是导入单个函数
 from langgraph.graph import StateGraph, END
 
+
 # 1. 新增通用的工具路由函数
 def check_tool_calls(state: agents.AgentState) -> str:
     """通用路由：判断状态中是否包含需要执行的工具"""
@@ -10,10 +11,46 @@ def check_tool_calls(state: agents.AgentState) -> str:
     else:
         return "next_step"
 
+
+# 2. 新增：动态汇聚路由工厂 (多分支纯文本节点使用)
+def create_fan_in_router(required_keys: list):
+    def fan_in_router(state: agents.AgentState) -> str:
+        context = state.get("context_data", {})
+        # 检查是否所有需要的分支数据都已经就绪
+        if all(key in context for key in required_keys):
+            return "ready"
+        else:
+            return "wait"  # 数据没齐，原地挂起
+
+    return fan_in_router
+
+
+# 3. 新增：工具+汇聚 复合路由工厂 (多分支带工具节点使用)
+def create_tool_or_fan_in_router(required_keys: list):
+    def router(state: agents.AgentState) -> str:
+        tool_calls = state.get("tool_calls", [])
+        if tool_calls and len(tool_calls) > 0:
+            return "execute_tools"
+
+        context = state.get("context_data", {})
+        if all(key in context for key in required_keys):
+            return "ready"
+        else:
+            return "wait"
+
+    return router
+
+
 # 将其注册为 graph 引擎的内置路由
 BUILTIN_ROUTERS = {
     "check_tool_calls": check_tool_calls
 }
+# 注册动态路由工厂
+DYNAMIC_ROUTER_FACTORIES = {
+    "fan_in_router": create_fan_in_router,
+    "tool_or_fan_in_router": create_tool_or_fan_in_router
+}
+
 
 # 核心构建工厂
 def build_graph_from_config(config: dict):
@@ -46,7 +83,10 @@ def build_graph_from_config(config: dict):
         raw_mapping = cond_edge_info["mapping"]
 
         # 动态获取路由函数：先找引擎内置的，再去找 agents 模块里用户自定义的
-        if router_func_name in BUILTIN_ROUTERS:
+        if router_func_name in DYNAMIC_ROUTER_FACTORIES:
+            router_args = cond_edge_info.get("router_args", {})
+            router_func = DYNAMIC_ROUTER_FACTORIES[router_func_name](**router_args)
+        elif router_func_name in BUILTIN_ROUTERS:
             router_func = BUILTIN_ROUTERS[router_func_name]
         elif hasattr(agents, router_func_name):
             router_func = getattr(agents, router_func_name)
