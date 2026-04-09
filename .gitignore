@@ -259,3 +259,12 @@ gitpush.sh
 # Local files
 *.bak
 agent-frontend/
+workspaces/
+workspace_data.db
+checkpoints.sqlite
+diagnosis_analysis.png
+diagnosis_report.json
+models.json
+start.bat
+start.py
+start.sh
