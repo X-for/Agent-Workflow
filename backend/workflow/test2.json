@@ -75,6 +75,10 @@
     {
       "from": "tool_executor",
       "to": "web_searcher"
+    },
+    {
+      "from": "tool_executor",
+      "to": "local_searcher"
     }
   ],
   "conditional_edges": [
@@ -120,6 +124,22 @@
         ]
       },
       "mapping": {
+        "ready": "summarizer",
+        "wait": "END"
+      }
+    },
+    {
+      "from": "local_searcher",
+      "router": "tool_or_fan_in_router",
+      "router_args": {
+        "required_keys": [
+          "web_results",
+          "local_results",
+          "research_results"
+        ]
+      },
+      "mapping": {
+        "execute_tools": "tool_executor",
         "ready": "summarizer",
         "wait": "END"
       }
