@@ -75,7 +75,7 @@
     { "from": "web_searcher_tools", "to": "web_searcher" },
     { "from": "local_searcher_tools", "to": "local_searcher" }
   ],
-  "conditional_edges": [
+"conditional_edges": [
     {
       "from": "web_searcher",
       "router": "tool_or_fan_in_router",
@@ -94,7 +94,7 @@
     },
     {
       "from": "local_searcher",
-      "router": "fan_in_router",
+      "router": "tool_or_fan_in_router",
       "router_args": {
         "required_keys": [
           "web_results",
@@ -119,22 +119,6 @@
         ]
       },
       "mapping": {
-        "ready": "summarizer",
-        "wait": "END"
-      }
-    },
-    {
-      "from": "local_searcher",
-      "router": "tool_or_fan_in_router",
-      "router_args": {
-        "required_keys": [
-          "web_results",
-          "local_results",
-          "research_results"
-        ]
-      },
-      "mapping": {
-        "execute_tools": "tool_executor",
         "ready": "summarizer",
         "wait": "END"
       }

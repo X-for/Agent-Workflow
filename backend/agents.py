@@ -6,7 +6,8 @@ import json
 import tools
 
 load_dotenv()
-# 1. 新增：归约器函数，用于自动合并并行节点产生的数据
+
+# 1. 归约器：合并字典，用于并发写出
 def merge_dicts(a: dict, b: dict) -> dict:
     if a is None: a = {}
     if b is None: b = {}
@@ -14,77 +15,62 @@ def merge_dicts(a: dict, b: dict) -> dict:
     res.update(b)
     return res
 
-# 新增：工具调用队列的归约器（支持并发添加工具，支持节点清空队列）
-def merge_tool_calls(left: Optional[list], right: Optional[list]) -> list:
-    if not left: left = []
-    if not right: right = []
-    # 如果 right 是一个空列表，说明这是由 tool_executor 发出的清空指令
-    if right == []:
-        return []
-    # 否则，如果是多个并发节点发出的工具调用，将它们合并到一个列表中执行
-    return left + right
-
-# 修改：在 AgentState 中使用 Annotated 包装 tool_calls
+# 2. 状态定义：tool_calls 改为字典
 class AgentState(TypedDict):
     user_input: str
-    tool_calls: Annotated[list, merge_tool_calls] # 核心修改点
+    tool_calls: Annotated[dict, merge_dicts] # 核心修改点：改用 dict 和 merge_dicts
     is_approved: bool
     draft: Optional[str]
     feedback: Optional[str]
     context_data: Annotated[dict, merge_dicts]
 
+# 3. 专属工具节点工厂
+def create_tool_node(agent_name: str):
+    def tool_executor_node(state: AgentState) -> dict:
+        # 只从字典里拿属于自己的工具请求
+        tool_calls = state.get("tool_calls", {}).get(agent_name, [])
+        if not tool_calls:
+            return {}
 
-def tool_executor_node(state: AgentState) -> dict:
-    tool_calls = state.get("tool_calls", [])
-    if not tool_calls:
-        return {}
+        results = []
+        for tc in tool_calls:
+            tool_name = tc["name"]
+            tool_args = tc["args"]
 
-    results = []
-    for tc in tool_calls:
-        tool_name = tc["name"]
-        tool_args = tc["args"]
+            if hasattr(tools, tool_name):
+                tool_obj = getattr(tools, tool_name)
+                res = tool_obj.invoke(tool_args)
+                results.append(f"【{tool_name} 执行结果】: {res}")
+            else:
+                results.append(f"【{tool_name} 执行失败】: 找不到该工具")
 
-        if hasattr(tools, tool_name):
-            tool_obj = getattr(tools, tool_name)
-            res = tool_obj.invoke(tool_args)
-            results.append(f"【{tool_name} 执行结果】: {res}")
-        else:
-            results.append(f"【{tool_name} 执行失败】: 找不到该工具")
+        new_res = "\n".join(results)
 
-    new_res = "\n".join(results)
+        existing_log = state.get("context_data", {}).get("tool_logs", "")
+        combined_log = existing_log + "\n\n" + new_res if existing_log else new_res
 
-    # 【核心修复】：将工具结果写入 context_data 池子，供后续大模型读取
-    existing_log = state.get("context_data", {}).get("tool_logs", "")
-    combined_log = existing_log + "\n\n" + new_res if existing_log else new_res
-
-    return {
-        "context_data": {"tool_logs": combined_log},  # 写入公共资料池
-        "tool_calls": []  # 发出清空工具队列的指令
-    }
+        return {
+            "context_data": {"tool_logs": combined_log},
+            "tool_calls": {agent_name: []}  # 执行完后，只清空自己的队列
+        }
+    return tool_executor_node
 
 
 def should_continue(state: AgentState) -> str:
-    """路由函数：解析审核员的反馈 JSON，判断是否通过审核"""
     feedback_str = state.get("feedback", "")
     is_approved = False
-
     if feedback_str:
         try:
-            # 移除大模型输出时可能带有的 markdown 代码块标记
             clean_str = feedback_str
             if clean_str.startswith("```json"):
                 clean_str = clean_str[7:-3].strip()
             elif clean_str.startswith("```"):
                 clean_str = clean_str[3:-3].strip()
-
-            # 解析 JSON 提取布尔值
             result = json.loads(clean_str)
             is_approved = result.get("is_approved", False)
         except Exception:
-            # 解析失败则强制打回
             is_approved = False
 
-    # 返回对应的信号字符串，供 graph.py 中的 mapping 进行路由
     if is_approved:
         return "END"
     else:
@@ -132,8 +118,6 @@ class BaseAgent:
         def node_func(state: AgentState) -> dict:
             current_llm = llm
             output_key = config.get("output_key", "draft")
-
-            # 【提取动态上下文】：让大模型只看动态池里的资料，避免被其他系统字段干扰
             context_pool = state.get("context_data", {})
 
             if actual_tools and not context_pool.get(output_key):
@@ -145,11 +129,11 @@ class BaseAgent:
             response = current_llm.invoke(prompt)
 
             if response.tool_calls:
-                return {"tool_calls": response.tool_calls}
+                # 核心修复：工具请求打包装入以自己名字命名的字典
+                return {"tool_calls": {self.name: response.tool_calls}}
             else:
                 result_text = response.content.strip()
 
-                # 【移除所有的 "tool_calls": []】
                 if output_key in ["draft", "feedback"]:
                     return {output_key: result_text}
                 else:
