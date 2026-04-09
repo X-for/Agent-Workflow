@@ -1,56 +1,58 @@
-from graph import app
-import sys
+import config_manager
+from graph import build_graph_from_config
+
 
 def main():
-    print("多智能体对话系统已启动！(输入 'quit' 或 'exit' 退出)")
-    
+    # 1. 读取工作流配置 (这里硬编码读取您刚才存的 standard_qa)
+    workflow_id = "test"
+    try:
+        config = config_manager.load_workflow_config(workflow_id)
+        print(f"成功加载配置: {config.get('description', workflow_id)}")
+    except FileNotFoundError:
+        print(f"错误: 找不到配置文件 {workflow_id}.json，请先保存配置。")
+        return
+
+    # 2. 将配置交给图引擎，动态编译出 LangGraph 实例
+    app = build_graph_from_config(config)
+    print("多智能体对话引擎已启动！(输入 'quit' 或 'exit' 退出)")
+
+    # 3. 终端交互循环
     while True:
-        lines = []
-        print("\n用户 (输入完毕后，在新的一行输入 'END' 并回车结束): ")
-        while True:
-            line = input()
-            if line == 'END':
-                break
-            lines.append(line)
-        user_input = '\n'.join(lines)
+        user_input = input("\n用户: ")
         if user_input.lower() in ['quit', 'exit', 'q']:
             print("系统关闭。")
             break
-            
+
         if not user_input.strip():
             continue
 
-        print("多智能体协作处理中...")
-        
-        # 构造初始 State，触发流程
-        initial_state = {"user_input": user_input}
-        
-        final_draft = "" # 用于记录最终通过审核的回答
-        
-        # 将原先的 final_state = app.invoke(initial_state) 替换为流式遍历
+        print("工作流执行中...")
+
+        # 构造初始 State，注意初始化 tool_calls 防范空指针
+        initial_state = {
+            "user_input": user_input,
+            "tool_calls": []
+        }
+
+        final_output = ""
+
+        # 使用 stream 流式输出，观察状态机的每一次流转
         for output in app.stream(initial_state):
-            # output 是一个字典，键是当前刚执行完毕的节点名称，值是它返回的状态更新
             for node_name, state_update in output.items():
-                print(f"--- [当前进度]: 智能体 '{node_name}' 已完成工作 ---")
-                
-                # 根据不同节点，打印关键的流转信息，方便调试和观察
-                if node_name == "parser":
-                    print(f"  > 提取关键词: {state_update.get('parsed_query')}")
-                elif node_name == "search":
-                    print(f"  > 网页检索已完成")
-                elif node_name == "generator":
-                    # 实时记录最新生成的草稿
-                    if "draft" in state_update:
-                        final_draft = state_update["draft"]
-                    print(f"  > 初稿已生成，等待审核...")
+                print(f"--- [进度]: 节点 '{node_name}' 已完成 ---")
+
+                # 打印一些关键信息方便调试观察
+                if node_name == "tool_executor":
+                    print(f"  > 工具执行完毕")
+                elif "draft" in state_update and node_name == "generator":
+                    final_output = state_update["draft"]
+                    print(f"  > 已生成初稿")
                 elif node_name == "reviewer":
-                    is_approved = state_update.get("is_approved")
-                    print(f"  > 审核通过状态: {is_approved}")
-                    if not is_approved:
-                        print(f"  > 审核意见: {state_update.get('feedback')}\n  > [系统提示]: 正在打回重写...")
-                        
-        # 整个图流转到达 END 后，输出最终被采纳的草稿
-        print(f"\nAI 最终回答: {final_draft}")
+                    print(f"  > 审核意见: {state_update.get('feedback', '无')}")
+
+        # 循环结束，图到达 END，输出最终草稿
+        print(f"\nAI 最终输出:\n{final_output}")
+
 
 if __name__ == "__main__":
     main()

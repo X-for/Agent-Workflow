@@ -48,7 +48,6 @@ def tool_executor_node(state: AgentState) -> dict:
 class BaseAgent:
     def __init__(self):
         self.tools_names = ""
-        self.openai = ChatOpenAI()
         self.model = ""
         self.name = ""
         self.base_prompt = ""

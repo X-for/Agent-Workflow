@@ -28,6 +28,8 @@ def build_graph_from_config(config: dict):
         node_func = agent_instance.create_dynamic_node(node_info)
         workflow.add_node(node_name, node_func)
 
+    workflow.add_node("tool_executor", agents.tool_executor_node)
+
     # 3.2 设置入口点
     entry_point = config.get("entry_point")
     if entry_point:
