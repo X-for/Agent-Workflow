@@ -64,6 +64,10 @@ def build_graph_from_config(config: dict):
         agent_instance = agents.BaseAgent()
         node_func = agent_instance.create_dynamic_node(node_info)
         workflow.add_node(node_name, node_func)
+        if node_info.get("tools"):
+            tool_node_name = f"{node_name}_tools"
+            workflow.add_node(tool_node_name, agents.tool_executor_node)
+        
 
     workflow.add_node("tool_executor", agents.tool_executor_node)
 

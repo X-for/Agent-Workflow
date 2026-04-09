@@ -72,14 +72,8 @@
       "from": "parser",
       "to": "deep_researcher"
     },
-    {
-      "from": "tool_executor",
-      "to": "web_searcher"
-    },
-    {
-      "from": "tool_executor",
-      "to": "local_searcher"
-    }
+    { "from": "web_searcher_tools", "to": "web_searcher" },
+    { "from": "local_searcher_tools", "to": "local_searcher" }
   ],
   "conditional_edges": [
     {
@@ -93,7 +87,7 @@
         ]
       },
       "mapping": {
-        "execute_tools": "tool_executor",
+        "execute_tools": "web_searcher_tools",
         "ready": "summarizer",
         "wait": "END"
       }
@@ -109,6 +103,7 @@
         ]
       },
       "mapping": {
+        "execute_tools": "local_searcher_tools",
         "ready": "summarizer",
         "wait": "END"
       }
