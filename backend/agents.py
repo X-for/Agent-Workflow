@@ -35,7 +35,6 @@ class AgentState(TypedDict):
 
 
 def tool_executor_node(state: AgentState) -> dict:
-    """专职工具节点：读取 tool_calls 并执行，将结果回写"""
     tool_calls = state.get("tool_calls", [])
     if not tool_calls:
         return {}
@@ -52,14 +51,15 @@ def tool_executor_node(state: AgentState) -> dict:
         else:
             results.append(f"【{tool_name} 执行失败】: 找不到该工具")
 
-    # 【修复】：将结果追加到 search_results 中，防止被覆盖丢失
-    existing = state.get("search_results") or ""
     new_res = "\n".join(results)
-    combined = existing + "\n\n" + new_res if existing else new_res
+
+    # 【核心修复】：将工具结果写入 context_data 池子，供后续大模型读取
+    existing_log = state.get("context_data", {}).get("tool_logs", "")
+    combined_log = existing_log + "\n\n" + new_res if existing_log else new_res
 
     return {
-        "search_results": combined,
-        "tool_calls": []  # 执行完毕，清空队列
+        "context_data": {"tool_logs": combined_log},  # 写入公共资料池
+        "tool_calls": []  # 发出清空工具队列的指令
     }
 
 
@@ -149,23 +149,16 @@ class BaseAgent:
             else:
                 result_text = response.content.strip()
 
-                # 【动态分流回写逻辑】
-                # 如果是 draft (草稿) 或 feedback (审核意见) 等系统核心字段，直接写在外层
+                # 【移除所有的 "tool_calls": []】
                 if output_key in ["draft", "feedback"]:
-                    return {output_key: result_text, "tool_calls": []}
-
-                # 其他所有在 JSON 中自定义的 output_key（如 web_results, local_results），全部打包装进动态池！
+                    return {output_key: result_text}
                 else:
                     if self.tools_names:
-                        # 针对搜索节点的追加逻辑
                         existing = context_pool.get(output_key, "")
                         final_text = f"{existing}\n\n[Agent总结]: {result_text}" if existing else result_text
                     else:
                         final_text = result_text
 
-                    # 以嵌套字典的形式返回，LangGraph 的 merge_dicts 会自动将其与现有的 context_data 合并
-                    return {"context_data": {output_key: final_text}, "tool_calls": []}
-
-        return node_func
+                    return {"context_data": {output_key: final_text}}
 
         return node_func

@@ -37,15 +37,17 @@ def main():
 
         final_output = ""
 
+        run_config = {"configurable": {"thread_id": "."}}
+
         # 使用 stream 流式输出，观察状态机的每一次流转
-        for output in app.stream(initial_state):
+        for output in app.stream(initial_state, config=run_config):
             for node_name, state_update in output.items():
                 print(f"--- [进度]: 节点 '{node_name}' 已完成 ---")
 
                 # 打印一些关键信息方便调试观察
                 if node_name == "tool_executor":
                     print(f"  > 工具执行完毕")
-                elif "draft" in state_update and node_name == "generator":
+                elif "draft" in state_update and node_name in ["generator", "summarizer"]:
                     final_output = state_update["draft"]
                     print(f"  > 已生成初稿")
                 elif node_name == "reviewer":
