@@ -7,6 +7,7 @@ import tools
 
 load_dotenv()
 
+
 # 1. 归约器：合并字典，用于并发写出
 def merge_dicts(a: dict, b: dict) -> dict:
     if a is None: a = {}
@@ -15,14 +16,16 @@ def merge_dicts(a: dict, b: dict) -> dict:
     res.update(b)
     return res
 
+
 # 2. 状态定义：tool_calls 改为字典
 class AgentState(TypedDict):
     user_input: str
-    tool_calls: Annotated[dict, merge_dicts] # 核心修改点：改用 dict 和 merge_dicts
+    tool_calls: Annotated[dict, merge_dicts]  # 核心修改点：改用 dict 和 merge_dicts
     is_approved: bool
     draft: Optional[str]
     feedback: Optional[str]
     context_data: Annotated[dict, merge_dicts]
+
 
 # 3. 专属工具节点工厂
 def create_tool_node(agent_name: str):
@@ -46,13 +49,17 @@ def create_tool_node(agent_name: str):
 
         new_res = "\n".join(results)
 
-        existing_log = state.get("context_data", {}).get("tool_logs", "")
+        # 【核心修复】：为每个智能体生成专属的日志 Key，彻底告别并发覆盖！
+        log_key = f"{agent_name}_tool_logs"
+
+        existing_log = state.get("context_data", {}).get(log_key, "")
         combined_log = existing_log + "\n\n" + new_res if existing_log else new_res
 
         return {
-            "context_data": {"tool_logs": combined_log},
-            "tool_calls": {agent_name: []}  # 执行完后，只清空自己的队列
+            "context_data": {log_key: combined_log},  # 写进自己专属的日志坑位
+            "tool_calls": {agent_name: []}
         }
+
     return tool_executor_node
 
 
@@ -132,10 +139,16 @@ class BaseAgent:
                 # 核心修复：工具请求打包装入以自己名字命名的字典
                 return {"tool_calls": {self.name: response.tool_calls}}
             else:
+
                 result_text = response.content.strip()
 
                 if output_key in ["draft", "feedback"]:
-                    return {output_key: result_text}
+                    memory_key = f"{output_key}_history"
+                    existing_memory = context_pool.get(memory_key, "")
+                    iteration = existing_memory.count("===") + 1
+                    new_entry = f"=== [第 {iteration} 轮 {self.name} 产出] ===\n{result_text}"
+                    updated_memory = existing_memory + "\n\n" + new_entry if existing_memory else new_entry
+                    return {output_key: result_text, "context_data": {memory_key: updated_memory}}
                 else:
                     if self.tools_names:
                         existing = context_pool.get(output_key, "")

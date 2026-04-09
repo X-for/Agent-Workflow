@@ -1,5 +1,5 @@
 {
-  "workflow_id": "parallel_research",
+  "workflow_id": "workengine",
   "description": "多分支并行任务解析、多维检索与最终总结结构",
   "entry_point": "parser",
   "nodes": [

@@ -1,0 +1,104 @@
+{
+  "workflow_id": "deepchat",
+  "description": "标准检索生成与审核流程（包含动态工具路由循环）",
+  "entry_point": "parser",
+  "nodes": [
+    {
+      "name": "parser",
+      "model": "deepseek-chat",
+      "temperature": 0.3,
+      "system_prompt": "请从以下用户输入中提取出最核心的搜索关键词，不要输出任何其他废话。",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "parsed_query",
+      "tools": []
+    },
+    {
+      "name": "search",
+      "model": "deepseek-chat",
+      "temperature": 0.3,
+      "system_prompt": "你是一个严谨的深度搜索智能体。请观察上下文进行资料检索。为了保证信息的全面性和准确性，在得到搜索列表后，你【必须】优先调用 get_content_from_url 工具，至少深度阅读 3 个以上的不同网页内容。你可以一次性并发调用多次该工具。只有完成了多源交叉验证，才能输出总结。",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "search_results",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ]
+    },
+{
+      "name": "generator",
+      "model": "deepseek-chat",
+      "temperature": 0.5,
+      "system_prompt": "你是一个顶级的资深技术专栏作家。请严格结合下方的上下文搜索结果，撰写一篇【极其详尽、深度剖析、带有丰富命令代码示例】的技术教程长文！\n\n⚠️【极度重要】：\n1. 绝对不允许只输出干巴巴的简短摘要！你的回答必须是一篇结构完整的长文。\n2. 必须包含详细的步骤说明、丰富的 Shell/Python 代码块演示、以及最佳实践场景。\n\n请按照以下格式整理内容:\n解决方案/总结结果: \n参考资料：",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "draft",
+      "tools": []
+    },
+    {
+      "name": "reviewer",
+      "model": "deepseek-chat",
+      "temperature": 0.1,
+      "system_prompt": "你是一个客观但要求极高内容深度的技术主编。请判断生成的草稿是否不仅解答了问题，而且【足够详尽、包含丰富的代码示例】。\n\n【审核规则】：\n1. 如果草稿太短（只是简单的几条列表摘要）、缺乏具体的代码和命令演示，请【坚决打回】(is_approved: false)，并在 feedback 中要求生成节点大幅扩写细节并补充代码块。\n2. 如果内容已经是结构完整、细节丰富的技术长文，或者生成节点已经根据你上一轮的意见进行了大幅扩写，请立即予以通过 (is_approved: true)。\n\n请严格以 JSON 格式返回结果，包含 is_approved (布尔值) 和 feedback (建议)。",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "feedback",
+      "tools": []
+    },
+    {
+      "name": "writer",
+      "model": "deepseek-chat",
+      "temperature": 0.3,
+      "system_prompt": "你是一个认真的抄写员, 你会提取对话中的关键信息调用工具保存到文档中。\n⚠️【极度重要】：请观察上下文，如果你看到工具执行记录中显示“文件已成功保存”，说明你的任务已经完成，请直接输出“文件已抄写完毕”，绝对不要重复调用保存工具！",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "write_result",
+      "tools": ["save_document"]
+    }
+  ],
+  "edges": [
+    {
+      "from": "parser",
+      "to": "search"
+    },
+    {
+      "from": "search_tools",
+      "to": "search"
+    },
+    {
+      "from": "generator",
+      "to": "reviewer"
+    },
+    {
+      "from": "writer_tools",
+      "to": "writer"
+    }
+  ],
+  "conditional_edges": [
+    {
+      "from": "search",
+      "router": "check_tool_calls",
+      "mapping": {
+        "execute_tools": "search_tools",
+        "next_step": "generator"
+      }
+    },
+    {
+      "from": "reviewer",
+      "router": "should_continue",
+      "mapping": {
+        "END": "writer",
+        "generator": "generator"
+      }
+    },
+    {
+      "from": "writer",
+      "router": "check_tool_calls",
+      "mapping": {
+        "execute_tools": "writer_tools",
+        "next_step": "END"
+      }
+    }
+  ]
+}
