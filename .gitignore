@@ -258,4 +258,4 @@ gitpush.sh
 
 # Local files
 *.bak
-./agent-frontend
+agent-frontend/
