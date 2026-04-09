@@ -1,22 +1,28 @@
 from langchain_openai import ChatOpenAI
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Annotated
 import os
 from dotenv import load_dotenv
 import json
 import tools
 
 load_dotenv()
+# 1. 新增：归约器函数，用于自动合并并行节点产生的数据
+def merge_dicts(a: dict, b: dict) -> dict:
+    if a is None: a = {}
+    if b is None: b = {}
+    res = a.copy()
+    res.update(b)
+    return res
 
-
-# 1. 定义共享状态 (State)
+# 2. 修改共享状态 (State)
 class AgentState(TypedDict):
+    # 核心系统级字段保留不变
     user_input: str
-    parsed_query: Optional[str]
-    search_results: Optional[str]
+    tool_calls: Optional[list]
+    is_approved: bool
     draft: Optional[str]
     feedback: Optional[str]
-    is_approved: bool
-    tool_calls: Optional[list]
+    context_date: Annotated[dict, merge_dicts]
 
 
 def tool_executor_node(state: AgentState) -> dict:
@@ -117,14 +123,15 @@ class BaseAgent:
         def node_func(state: AgentState) -> dict:
             current_llm = llm
             output_key = config.get("output_key", "draft")
-            # 【防死循环核心逻辑：动态绑定工具】
-            # 如果当前节点配置了工具，且状态里还【没有】对应的数据，才给大模型绑定工具。
-            # 如果状态里【已经有】数据（说明工具刚执行完绕回来了），就不绑定工具，逼迫它生成总结！
-            if actual_tools and not state.get(output_key):
+
+            # 【提取动态上下文】：让大模型只看动态池里的资料，避免被其他系统字段干扰
+            context_pool = state.get("context_data", {})
+
+            if actual_tools and not context_pool.get(output_key):
                 current_llm = llm.bind_tools(actual_tools)
-                prompt = f"{self.base_prompt}\n\n当前可用上下文状态:\n{state}\n\n请根据要求输出结果："
+                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n当前可用资料池:\n{context_pool}\n\n请根据要求输出结果："
             else:
-                prompt = f"{self.base_prompt}\n\n当前可用上下文状态:\n{state}\n\n⚠️工具已执行完毕并返回了上述结果。请直接输出总结，绝对不要再说多余的话！"
+                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n当前可用资料池:\n{context_pool}\n\n⚠️工具已执行完毕。请直接输出总结，绝对不要再说多余的话！"
 
             response = current_llm.invoke(prompt)
 
@@ -132,21 +139,24 @@ class BaseAgent:
                 return {"tool_calls": response.tool_calls}
             else:
                 result_text = response.content.strip()
-                output_key = config.get("output_key", "draft")
 
-                # 【核心修复】：区分追加与覆盖
-                # 如果这个节点配置了工具（self.tools_names 不为空），说明它是 search 节点，必须保留搜索结果并追加总结
-                if self.tools_names:
-                    existing_data = state.get(output_key)
-                    if existing_data:
-                        final_text = f"{existing_data}\n\n[Agent总结]: {result_text}"
+                # 【动态分流回写逻辑】
+                # 如果是 draft (草稿) 或 feedback (审核意见) 等系统核心字段，直接写在外层
+                if output_key in ["draft", "feedback"]:
+                    return {output_key: result_text, "tool_calls": []}
+
+                # 其他所有在 JSON 中自定义的 output_key（如 web_results, local_results），全部打包装进动态池！
+                else:
+                    if self.tools_names:
+                        # 针对搜索节点的追加逻辑
+                        existing = context_pool.get(output_key, "")
+                        final_text = f"{existing}\n\n[Agent总结]: {result_text}" if existing else result_text
                     else:
                         final_text = result_text
-                # 如果没有配置工具（如 generator 和 reviewer），说明它是纯文本节点，必须【直接覆盖】旧状态！
-                # 这样 reviewer 每次输出的都是干净的、可被解析的单一 JSON！
-                else:
-                    final_text = result_text
 
-                return {output_key: final_text, "tool_calls": []}
+                    # 以嵌套字典的形式返回，LangGraph 的 merge_dicts 会自动将其与现有的 context_data 合并
+                    return {"context_data": {output_key: final_text}, "tool_calls": []}
 
-            return node_func
+        return node_func
+
+        return node_func

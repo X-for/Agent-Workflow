@@ -56,7 +56,7 @@ def build_graph_from_config(config: dict):
         # 将 JSON 中的 "END" 字符串转换为 LangGraph 实际的 END 常量
         processed_mapping = {}
         for condition, target in raw_mapping.items():
-            key = END if condition == "END" else condition
+            key = condition
             val = END if target == "END" else target
             processed_mapping[key] = val
 
