@@ -1,0 +1,26 @@
+{
+    "workflow_id": "standard_qa",
+    "description": "标准检索生成与审核流程",
+    "entry_point": "parser",
+    "nodes": [
+        {"name": "parser", "func": "parser_node"},
+        {"name": "search", "func": "search_node"},
+        {"name": "generator", "func": "generator_node"},
+        {"name": "reviewer", "func": "reviewer_node"}
+    ],
+    "edges": [
+        {"from": "parser", "to": "search"},
+        {"from": "search", "to": "generator"},
+        {"from": "generator", "to": "reviewer"}
+    ],
+    "conditional_edges": [
+        {
+            "from": "reviewer",
+            "router": "should_continue",
+            "mapping": {
+                "END": "END",
+                "generator": "generator"
+            }
+        }
+    ]
+}
