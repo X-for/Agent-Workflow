@@ -106,3 +106,49 @@ def list_files_in_directory(config: RunnableConfig) -> str:
         return f"当前目录下的文件有:\n" + "\n".join(files_info)
     except Exception as e:
         return f"列出目录时发生错误: {str(e)}"
+    
+
+@tool
+@log
+# 工具 1：精准读取本地文件（支持指定行数）
+def read_local_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
+    """读取本地项目文件的内容。可以指定开始和结束行号来查看特定代码块。"""
+    try:
+        if not os.path.exists(file_path):
+            return f"❌ 错误: 找不到文件 {file_path}"
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        if end_line is None:
+            end_line = len(lines)
+            
+        # 加上行号以便大模型精准定位
+        result = []
+        for i in range(start_line - 1, min(end_line, len(lines))):
+            result.append(f"{i + 1} | {lines[i].rstrip()}")
+        return "\n".join(result)
+    except Exception as e:
+        return f"❌ 读取失败: {str(e)}"
+
+
+@tool
+@log
+# 工具 2：全局搜索函数/类定义
+def search_code(keyword: str, directory: str = ".") -> str:
+    """在指定目录及其子目录下的代码文件中搜索关键词（如函数名、类名）。"""
+    import glob
+    results = []
+    # 简单实现：搜索所有 .py 文件 (您可以根据需要扩展 .js, .go 等)
+    for filepath in glob.glob(os.path.join(directory, "**/*.py"), recursive=True):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    if keyword in line:
+                        results.append(f"{filepath} (Line {line_num}): {line.strip()}")
+        except Exception:
+            pass
+    
+    if not results:
+        return f"未找到包含 '{keyword}' 的代码。"
+    # 截断过长的结果防止爆 token
+    return "\n".join(results[:50])

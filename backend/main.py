@@ -5,6 +5,7 @@ import json
 import config_manager
 from graph import build_graph_from_config
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
@@ -26,7 +27,7 @@ class Colors:
 # 2. 长效记忆流系统 (Long-Term Memory) - 支持多会话
 # ==========================================
 def get_memory_path(workflow_id: str, session_id: str) -> str:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.environ.get("BASE_DIR", ".")
     return os.path.join(base_dir, os.environ.get("CHAT_DIR", "chats"), f"{workflow_id}_{session_id}_memory.json")
 
 
@@ -147,8 +148,8 @@ def create_workflow_wizard() -> str:
         ]
 
     # 保存 JSON 文件
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    workflow_dir = os.path.join(base_dir, "workflow")
+    base_dir = os.environ.get("BASE_DIR", ".")
+    workflow_dir = os.path.join(base_dir, os.environ["WORKFLOW_DIR"])
     os.makedirs(workflow_dir, exist_ok=True)
     file_path = os.path.join(workflow_dir, f"{wf_id}.json")
 
@@ -164,8 +165,8 @@ def create_workflow_wizard() -> str:
 # 3. 动态加载工作流菜单
 # ==========================================
 def select_workflow() -> str:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    workflow_dir = os.path.join(base_dir, "workflow")
+    base_dir = os.environ["BASE_DIR"]
+    workflow_dir = os.environ["WORKFLOW_DIR"]
     os.makedirs(workflow_dir, exist_ok=True)
 
     files = glob.glob(os.path.join(workflow_dir, "*.json"))
@@ -235,8 +236,15 @@ def main():
     import glob
 
     # 扫描当前工作流的所有历史记忆文件
-    memory_files = glob.glob(f"{workflow_id}_*_memory.json")
-    sessions = [f.replace(f"{workflow_id}_", "").replace("_memory.json", "") for f in memory_files]
+    # 扫描当前工作流的所有历史记忆文件
+    # 1. 补全绝对路径，防止跨目录运行时找不到文件
+    chat_dir = os.path.join(os.environ["BASE_DIR"], os.environ["CHAT_DIR"])
+    pattern = os.path.join(chat_dir, f"{workflow_id}_*_memory.json")
+
+    memory_files = glob.glob(pattern)
+
+    # 2. 必须先用 os.path.basename(f) 剥离前面的文件夹路径，只对纯文件名进行处理
+    sessions = [os.path.basename(f).replace(f"{workflow_id}_", "").replace("_memory.json", "") for f in memory_files]
 
     print(f"\n✦ 请选择历史对话，或创建新对话:")
     print(f"  \033[93m[0] ➕ 创建新对话\033[0m")
@@ -264,6 +272,7 @@ def main():
 
     print_sys(f"当前已进入独立会话沙盒: [{session_id}]")
     # 【修改传参】：将 session_id 传给记忆读取函数
+
     global_context = load_context_memory(workflow_id, session_id)
     if global_context:
         print_success(f"已恢复上一次的上下文记忆 (包含 {len(global_context)} 条历史资料区块)")
@@ -309,7 +318,7 @@ def main():
             }
 
             # 【修改】：让 LangGraph 的线程 ID 和您的会话 ID 绑定，实现真正的物理隔离
-            run_config = {"configurable": {"thread_id": session_id}}
+            run_config = {"configurable": {"thread_id": session_id}, "recursion_limit": 15}
             final_output = "【未获取到最终输出，图可能在中间节点中断】"
             print_ai_header = False
 
@@ -320,7 +329,7 @@ def main():
                     chunk, metadata = event_data
                     node_name = metadata.get("langgraph_node", "")
 
-                    if node_name in ["generator", "summarizer", "agent"]:
+                    if node_name in ["generator", "summarizer", "agent", "critic"]:
                         if not print_ai_header:
                             print(
                                 f"\n{Colors.CYAN}{Colors.BOLD}🤖 [{node_name} 正在实时思考并输出]:{Colors.RESET}\n{Colors.CYAN}",
@@ -332,20 +341,31 @@ def main():
                             sys.stdout.flush()
 
                 elif event_type == "updates":
+                    # 【关键修复 1】：每次有新节点完成更新时，重置打印头，让下一个节点能正常报出自己的名字
+                    print_ai_header = False
+                    
                     for node_name, state_update in event_data.items():
                         if "context_data" in state_update:
                             global_context.update(state_update["context_data"])
+                            
                         if node_name.endswith("_tools"):
                             print(f"  {Colors.YELLOW}⚙️  [{node_name}] 工具执行完毕{Colors.RESET}")
                         elif node_name == "reviewer":
                             feedback = state_update.get('feedback', '无')
                             print(f"  {Colors.RED}🔍 [{node_name}] 审核意见: {feedback}{Colors.RESET}")
-                        elif node_name in ["generator", "summarizer", "agent"]:
-                            print(f"{Colors.RESET}\n  {Colors.GREEN}✔ [{node_name}] 报告流式生成完毕{Colors.RESET}")
+                            # 【关键修复 2】：把裁判的定稿也抓取为最终输出
+                            if "feedback" in state_update:
+                                final_output = state_update["feedback"]
+                        elif node_name in ["generator", "summarizer", "agent", "writer", "critic", "recorder"]:
+                            print(f"{Colors.RESET}\n  {Colors.GREEN}✔ [{node_name}] 节点处理完毕{Colors.RESET}")
+                            # 【关键修复 3】：全面捕获所有可能的最终输出字段
                             if "draft" in state_update:
                                 final_output = state_update["draft"]
+                            elif "write_result" in state_update:
+                                final_output = state_update["write_result"]
                         else:
                             print(f"  {Colors.BLUE}🧠 [{node_name}] 思考/分发完成{Colors.RESET}")
+
             save_context_memory(workflow_id, session_id, global_context)
             if not print_ai_header:
                 print_ai(final_output)

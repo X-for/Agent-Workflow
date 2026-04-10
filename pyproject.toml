@@ -21,3 +21,8 @@ dependencies = [
     "python-multipart>=0.0.22",
     "uvicorn>=0.42.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.19.0",
+]

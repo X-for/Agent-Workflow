@@ -1,0 +1,92 @@
+{
+  "workflow_id": "content_studio",
+  "description": "内容创作工作室 (全网检索 -> 深度创作 -> 严苛审稿 -> 本地存档)",
+  "entry_point": "agent",
+  "nodes": [
+    {
+      "name": "agent",
+      "model": "deepseek-chat",
+      "temperature": 0.3,
+      "system_prompt": "你是一个严谨的【首席资料调查员】。你的任务是为后续的创作搜集详实资料。\n\n【状态机执行法则（极度重要）】：\n大模型注意：你必须根据当前对话上下文里的【工具返回结果】，严格触发对应的动作，绝不允许自主偏离！\n\n- 状态 1（上下文中没有任何搜索结果时）：\n  动作：你【只能】调用 `web_search` 工具搜索1次。⚠️绝对禁止连续搜索！\n\n- 状态 2（上下文中已经有了 `web_search` 的返回结果时）：\n  动作：你【必须立刻】从中挑选1-2个URL，调用 `get_content_from_url` 工具去阅读正文。⚠️此时【绝对禁止】再次调用 web_search 换词搜索，不要管搜索结果完不完美，立刻去读原文！\n\n- 状态 3（上下文中已经有了 `get_content_from_url` 的网页正文结果时）：\n  动作：你【必须立刻结束调查】！结合搜集到的网页正文直接输出《背景研究简报》纯文本。⚠️此时【绝对禁止】再调用任何工具！交卷下班！",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "draft",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ]
+    },
+    {
+      "name": "generator",
+      "model": "deepseek-chat",
+      "temperature": 0.85,
+      "system_prompt": "你是一个极具才华的【金牌作家/知名编导】。你的文字极具画面感、情绪张力和深度。\n\n【工作流】：\n请仔细阅读上下文中【调查员】提供的《背景研究简报》以及上一轮【总编】(reviewer) 给出的修改意见（如果有的话）。\n发挥你的绝佳创造力，将这些冰冷的资料转化为一篇引人入胜的文章、小说、或短视频剧本。请直接输出你的创作内容，不需要解释你的创作思路！",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "draft",
+      "tools": []
+    },
+    {
+      "name": "reviewer",
+      "model": "deepseek-chat",
+      "temperature": 0.2,
+      "system_prompt": "你是掌控全生命周期的【毒舌内容总编】。你需要对【作家】提交的稿件进行无情且专业的审阅。\n\n【核心规则】：\n1. 如果稿件文笔平淡、逻辑不通或偏离主题，请返回 is_approved: false，并在 feedback 中给出极其尖锐的修改指导，打回重写。\n2. 如果稿件质量极高，请返回 is_approved: true，并在 feedback 中输出最终润色后的定稿。\n3. ⚠️【强制熔断】：为了防止创作者崩溃，如果稿件已被打回修改超过 2 次，请强行终止！返回 `is_approved: true`，并在 feedback 中由你亲自将最好的版本润色后作为最终定稿输出。\n\n⚠️【输出格式】：必须且只能输出严格的 JSON 格式：{\"is_approved\": true/false, \"feedback\": \"你的审阅意见或最终定稿\"}，严禁输出其他字符！",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "feedback",
+      "tools": []
+    },
+    {
+      "name": "recorder",
+      "model": "deepseek-chat",
+      "temperature": 0.1,
+      "system_prompt": "你是负责归档定稿的【终点站管理员】。请严格根据上下文状态执行以下法则：\n\n- 状态 1（尚未保存时）：当你接手总编(reviewer)的定稿时，你【必须且只能】调用 `save_document` 工具执行物理保存。⚠️严禁在对话框里复述文章内容，直接调工具！\n\n- 状态 2（保存成功后）：请检查最新一条消息，如果工具已经明确返回了“文件...已成功保存至...”的结果，说明你的任务已彻底完成！此时你【丧失一切调用工具的权限】！你只需要作为普通人类，在对话框里输出四个字：“存档完毕”，即可立刻下班结束整个工作流。",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "write_result",
+      "tools": [
+        "save_document"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "agent_tools",
+      "to": "agent"
+    },
+    {
+      "from": "generator",
+      "to": "reviewer"
+    },
+    {
+      "from": "recorder_tools",
+      "to": "recorder"
+    }
+  ],
+  "conditional_edges": [
+    {
+      "from": "agent",
+      "router": "check_tool_calls",
+      "mapping": {
+        "execute_tools": "agent_tools",
+        "next_step": "generator"
+      }
+    },
+    {
+      "from": "reviewer",
+      "router": "should_continue",
+      "mapping": {
+        "END": "recorder",
+        "generator": "generator"
+      }
+    },
+    {
+      "from": "recorder",
+      "router": "check_tool_calls",
+      "mapping": {
+        "execute_tools": "recorder_tools",
+        "next_step": "END"
+      }
+    }
+  ]
+}
