@@ -365,10 +365,27 @@ def main():
                                 final_output = state_update["write_result"]
                         else:
                             print(f"  {Colors.BLUE}🧠 [{node_name}] 思考/分发完成{Colors.RESET}")
+            # 【核心修复】：不要粗暴删除工具日志，而是将其合并到长期知识库中，并限制长度防止爆显存
+            project_knowledge = global_context.get("project_knowledge_cache", "")
+            
+            keys_to_delete = []
+            for k in global_context.keys():
+                if k.endswith("_tool_logs"):
+                    project_knowledge += f"\n{global_context[k]}"
+                    keys_to_delete.append(k)
+                elif k.endswith("_last_tool_calls"):
+                    keys_to_delete.append(k)
+                    
+            for k in keys_to_delete:
+                del global_context[k]
+                
+            # 截断过长的历史代码记忆，保留最近的 20000 字符（约 10000 Token）
+            if len(project_knowledge) > 20000:
+                project_knowledge = "...(早期记忆已折叠)...\n" + project_knowledge[-20000:]
+                
+            global_context["project_knowledge_cache"] = project_knowledge
 
             save_context_memory(workflow_id, session_id, global_context)
-            # if not print_ai_header:
-            #     print_ai(final_output)
 
         except KeyboardInterrupt:
             print(f"\n{Colors.YELLOW}⚠ 收到中断信号。若要彻底退出请输入 'q'。{Colors.RESET}\n")

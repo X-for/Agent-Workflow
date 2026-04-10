@@ -11,19 +11,12 @@ def create_check_tool_calls(node_name: str = None):
         if not tool_calls or len(tool_calls) == 0:
             return "next_step"
             
-        # --- 物理熔断逻辑 ---
-        messages = state.get("messages", [])
-        current_turn_tool_count = 0
-        
-        # 倒序扫描，只数这一轮（最新人类提问之后）的工具调用次数
-        for msg in reversed(messages):
-            if getattr(msg, "type", "") == "human":
-                break
-            if getattr(msg, "type", "") == "tool":
-                current_turn_tool_count += 1
-                
-        # 【终极必杀】：针对不同节点，设定不同的物理限流
-        # 调查员(agent)允许试错3次，归档员(recorder)绝对只准存1次！
+        # --- 物理熔断 ---
+        log_key = f"{node_name}_tool_logs"
+        tool_logs = state.get("context_data", {}).get(log_key, "")
+        # 计算出现过多少次成功或失败的标记
+        current_turn_tool_count = tool_logs.count("执行结果") + tool_logs.count("执行失败")
+
         # 【终极必杀】：针对不同节点，设定不同的物理限流
         if node_name == "recorder":
             max_limit = 1

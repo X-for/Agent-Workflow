@@ -127,17 +127,38 @@ class BaseAgent:
             output_key = config.get("output_key", "draft")
             context_pool = state.get("context_data", {})
 
+            tools_logs = context_pool.get(f"{self.name}_tool_logs", "暂无工具执行记录")
+
+
             if actual_tools and not context_pool.get(output_key):
                 current_llm = llm.bind_tools(actual_tools)
-                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n当前可用资料池:\n{context_pool}\n\n请根据要求输出结果："
+                # 强化 Prompt：明确告诉它哪些是【刚刚】执行过的工具
+                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n【⚠️你在此轮任务中刚刚执行的工具日志（切勿重复调用）】:\n{tools_logs}\n\n【历史背景资料】:\n{context_pool}\n\n请根据要求进行下一步行动："
             else:
-                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n当前可用资料池:\n{context_pool}\n\n⚠️工具已执行完毕。请直接输出总结，绝对不要再说多余的话！"
-
+                prompt = f"{self.base_prompt}\n\n用户原始问题：{state.get('user_input')}\n\n当前可用资料池:\n{context_pool}\n\n⚠️工具已执行完毕。请直接输出结果，绝对不要再说多余的话！"
             response = current_llm.invoke(prompt)
 
             if response.tool_calls:
-                # 核心修复：工具请求打包装入以自己名字命名的字典
-                return {"tool_calls": {self.name: response.tool_calls}}
+                # 2. 【核心修复】：防抽搐硬拦截
+                last_tool_calls_key = f"{self.name}_last_tool_calls"
+                last_calls = context_pool.get(last_tool_calls_key, [])
+                
+                # 必须剔除大模型生成的随机 ID，只对比工具名和参数
+                def simplify_calls(calls):
+                    return [{"name": c["name"], "args": c["args"]} for c in calls]
+                
+                if last_calls and simplify_calls(last_calls) == simplify_calls(response.tool_calls):
+                    print(f"\n🚫 [底层死循环拦截] 发现 {self.name} 试图重复调用相同的工具参数！强行打断！")
+                    # 剥夺它的工具权限，强制退出循环并输出报错内容
+                    return {
+                        "tool_calls": {self.name: []}, 
+                        output_key: "【系统强行介入】：你陷入了死循环！你试图调用与刚才一模一样的工具参数。请立即停止调用工具，根据已有信息直接回答用户！"
+                    }
+
+                return {
+                    "tool_calls": {self.name: response.tool_calls},
+                    "context_data": {last_tool_calls_key: response.tool_calls}
+                }
             else:
 
                 result_text = response.content.strip()
