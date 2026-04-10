@@ -367,8 +367,8 @@ def main():
                             print(f"  {Colors.BLUE}🧠 [{node_name}] 思考/分发完成{Colors.RESET}")
 
             save_context_memory(workflow_id, session_id, global_context)
-            if not print_ai_header:
-                print_ai(final_output)
+            # if not print_ai_header:
+            #     print_ai(final_output)
 
         except KeyboardInterrupt:
             print(f"\n{Colors.YELLOW}⚠ 收到中断信号。若要彻底退出请输入 'q'。{Colors.RESET}\n")
