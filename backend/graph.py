@@ -24,11 +24,19 @@ def create_check_tool_calls(node_name: str = None):
                 
         # 【终极必杀】：针对不同节点，设定不同的物理限流
         # 调查员(agent)允许试错3次，归档员(recorder)绝对只准存1次！
-        max_limit = 1 if node_name == "recorder" else 3
+        # 【终极必杀】：针对不同节点，设定不同的物理限流
+        if node_name == "recorder":
+            max_limit = 1
+        elif node_name == "agent":
+            # 为代码助手的深度检索放宽限流，允许它在不同文件间穿梭 8 次
+            max_limit = 8 
+        else:
+            max_limit = 3
         
         if current_turn_tool_count >= max_limit:
             print(f"\n🚫 [系统底层拦截] 节点 '{node_name}' 触发限流(已调用{current_turn_tool_count}次)，强制打卡下班！")
             return "next_step"
+        
         # -------------------------
             
         return "execute_tools"

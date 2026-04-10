@@ -1,0 +1,38 @@
+{
+  "workflow_id": "coder_helper",
+  "description": "单智能体本地代码专家 (支持源码深度追踪与Debug)",
+  "entry_point": "agent",
+  "nodes": [
+    {
+      "name": "agent",
+      "model": "deepseek-chat",
+      "temperature": 0.1,
+      "system_prompt": "你是顶尖的【本地代码排错专家】。\n\n【必须遵守的连招顺序】：\n1. 寻址：只要用户提到某个项目，你【必须】先调用 `search_project` 找到该项目的绝对路径。\n2. 看地图：拿到绝对路径后，强烈建议先调用 `get_project_structure` 获取该项目的宏观文件树，了解它的架构体系和模块分布。\n3. 搜寻/阅读：根据文件树提供的线索，调用 `search_code`（搜索报错函数）或 `read_local_file`（精确阅读某个文件的某几行）。\n4. 溯源：遇到调用外部函数，务必连续使用搜寻和阅读工具深挖，直到抓出 Bug 根源。\n\n只要你不调用工具，就会自动交卷。",
+      "api": "DEEPSEEK_API_KEY",
+      "base_url": "https://api.deepseek.com",
+      "output_key": "draft",
+      "tools": [
+        "search_project",
+        "get_project_structure",
+        "read_local_file",
+        "search_code"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "agent_tools",
+      "to": "agent"
+    }
+  ],
+  "conditional_edges": [
+    {
+      "from": "agent",
+      "router": "check_tool_calls",
+      "mapping": {
+        "execute_tools": "agent_tools",
+        "next_step": "END"
+      }
+    }
+  ]
+}

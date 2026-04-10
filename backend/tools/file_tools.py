@@ -107,48 +107,148 @@ def list_files_in_directory(config: RunnableConfig) -> str:
     except Exception as e:
         return f"列出目录时发生错误: {str(e)}"
     
+# 假设当前文件在 backend/tools/ 目录下，那么它的上两级 "../../" 就是项目根目录
+PROJECT_ROOT = os.environ.get("PROJECTS_DIR", WORKSPACE_BASE)
+
 
 @tool
 @log
-# 工具 1：精准读取本地文件（支持指定行数）
-def read_local_file(file_path: str, start_line: int = 1, end_line: int = None) -> str:
-    """读取本地项目文件的内容。可以指定开始和结束行号来查看特定代码块。"""
+def search_project() -> str:
+    """
+    当用户要求查看某个项目时，调用此工具获取工作区下的所有项目列表。
+    """
     try:
-        if not os.path.exists(file_path):
-            return f"❌ 错误: 找不到文件 {file_path}"
-        with open(file_path, 'r', encoding='utf-8') as f:
+        # 获取所有文件夹名
+        projects = next(os.walk(PROJECT_ROOT))[1]
+        # 【修复1】：明确告诉大模型根目录地址，让它自己去拼接绝对路径
+        return (f"✅ 当前工作区绝对路径为: {PROJECT_ROOT}\n"
+                f"包含以下项目目录: {projects}\n"
+                f"⚠️ 提示：调用后续工具时，请务必将工作区路径与项目名拼接成完整的绝对路径传入！")
+    except StopIteration:
+        return f"❌ 无法读取目录: {PROJECT_ROOT}"
+
+
+@tool
+@log
+def get_project_structure(absolute_path: str, max_depth: int = 3, special_files: list = None) -> str:
+    """
+    获取指定项目目录的树状文件结构。自动过滤掉缓存、虚拟环境等无关文件。
+    不要轻易选择特定的.git, .vscode目录作为 special_files 作为参数传入 !!!
+    不要轻易选择特定的.git, .vscode目录作为 special_files 作为参数传入 !!!
+    不要轻易选择特定的.git, .vscode目录作为 special_files 作为参数传入 !!!
+    参数:
+    - absolute_path: 项目的绝对路径
+    - max_depth: 最大向下遍历的层级深度（默认 3 层）
+    - special_files: 可选的特殊文件列表，如果提供了这个参数，函数就会将这些已经被排除的文件/目录重新包含在结果中
+    """
+    if not special_files:
+        special_files = []
+    if not os.path.exists(absolute_path):
+        return f"❌ 找不到目录: {absolute_path}"
+
+    # 定义要无情排除的垃圾目录和文件后缀
+    EXCLUDE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', '.venv', 'env', '.idea', '.vscode'}
+    EXCLUDE_EXTS = {'.pyc', '.pyo', '.pyd', '.so', '.dll', '.class', '.lock', '.log'}
+
+    tree_str = []
+    base_level = absolute_path.rstrip(os.sep).count(os.sep)
+
+    for root, dirs, files in os.walk(absolute_path):
+        # 1. 过滤掉黑名单目录和所有以 . 开头的隐藏目录
+        dirs[:] = [d for d in dirs if (d not in EXCLUDE_DIRS and not d.startswith('.')) or (d in special_files)]
+        
+        # 2. 计算当前深度，超过 max_depth 就停止往下遍历
+        level = root.rstrip(os.sep).count(os.sep) - base_level
+        if level >= max_depth:
+            del dirs[:]  # 清空 dirs 列表，阻止 os.walk 继续向下
+            
+        indent = '  ' * level
+        basename = os.path.basename(root)
+        
+        # 记录目录
+        if level == 0:
+            tree_str.append(f"📁 {basename}/")
+        else:
+            tree_str.append(f"{indent}📂 {basename}/")
+            
+        # 记录文件（过滤掉隐藏文件和黑名单后缀，除非它在特权名单中）
+        sub_indent = '  ' * (level + 1)
+        for f in files:
+            # 1. 如果该文件在特权白名单中，直接无条件放行
+            if f in special_files:
+                tree_str.append(f"{sub_indent}📄 {f}")
+                continue
+                
+            # 2. 否则，执行常规的黑名单拦截（拦截隐藏文件和垃圾后缀）
+            if f.startswith('.') or any(f.endswith(ext) for ext in EXCLUDE_EXTS):
+                continue
+                
+            tree_str.append(f"{sub_indent}📄 {f}")
+            
+    result = "\n".join(tree_str)
+    # 加一个字数保险，防止超大项目搞崩模型
+    return result if len(result) < 15000 else result[:15000] + "\n... (内容过长，已截断)"
+
+@tool
+@log
+def read_local_file(absolute_file_path: str, start_line: int = 1, end_line: int = None) -> str:
+    """读取文件的具体内容。必须传入完整的 absolute_file_path。"""
+    try:
+        if not os.path.exists(absolute_file_path):
+            return f"❌ 找不到文件 {absolute_file_path}"
+        with open(absolute_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
-            
-        if end_line is None:
-            end_line = len(lines)
-            
-        # 加上行号以便大模型精准定位
-        result = []
-        for i in range(start_line - 1, min(end_line, len(lines))):
-            result.append(f"{i + 1} | {lines[i].rstrip()}")
+        
+        end_line = len(lines) if end_line is None else end_line
+        result = [f"{i + 1} | {lines[i].rstrip()}" for i in range(start_line - 1, min(end_line, len(lines)))]
         return "\n".join(result)
     except Exception as e:
-        return f"❌ 读取失败: {str(e)}"
+        return f"❌ 读取失败: {e}"
 
 
 @tool
 @log
-# 工具 2：全局搜索函数/类定义
-def search_code(keyword: str, directory: str = ".") -> str:
-    """在指定目录及其子目录下的代码文件中搜索关键词（如函数名、类名）。"""
-    import glob
-    results = []
-    # 简单实现：搜索所有 .py 文件 (您可以根据需要扩展 .js, .go 等)
-    for filepath in glob.glob(os.path.join(directory, "**/*.py"), recursive=True):
-        try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                for line_num, line in enumerate(f, 1):
-                    if keyword in line:
-                        results.append(f"{filepath} (Line {line_num}): {line.strip()}")
-        except Exception:
-            pass
+def search_code(keyword: str, absolute_directory: str, special_files: list=None) -> str:
+    """在指定的项目绝对路径下搜索代码关键词。支持全文件类型搜索，自动过滤无用目录。"""
+    if not os.path.exists(absolute_directory):
+        return f"❌ 找不到目录 {absolute_directory}"
     
-    if not results:
-        return f"未找到包含 '{keyword}' 的代码。"
-    # 截断过长的结果防止爆 token
-    return "\n".join(results[:50])
+    if not special_files:
+        special_files = []
+        
+    # 同步黑名单，防止陷入虚拟环境和缓存的泥潭
+    EXCLUDE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', '.venv', 'env', '.idea', '.vscode'}
+    # 增加二进制和日志文件后缀，防止尝试用 utf-8 读取它们导致报错
+    EXCLUDE_EXTS = {'.pyc', '.pyo', '.pyd', '.so', '.dll', '.class', '.lock', '.log', '.zip', '.tar', '.pdf', '.png', '.jpg'}
+
+    results = []
+    
+    for root, dirs, files in os.walk(absolute_directory):
+        # 1. 目录修剪：将黑名单和隐藏目录直接砍掉，极大提升搜索速度
+        dirs[:] = [d for d in dirs if (d not in EXCLUDE_DIRS and not d.startswith('.')) or (d in special_files)]
+        
+        for f in files:
+            # 2. 文件修剪：跳过隐藏文件和二进制/日志文件
+            if f not in special_files and (f.startswith('.') or any(f.endswith(ext) for ext in EXCLUDE_EXTS)):
+                continue
+                
+            filepath = os.path.join(root, f)
+            try:
+                # 尝试读取文件，只找文本内容
+                with open(filepath, 'r', encoding='utf-8') as file_obj:
+                    for line_num, line in enumerate(file_obj, 1):
+                        if keyword in line:
+                            # 使用 os.path.relpath 更加安全和优雅
+                            rel_path = os.path.relpath(filepath, absolute_directory)
+                            results.append(f"{rel_path} (Line {line_num}): {line.strip()}")
+                            
+                            # 3. 性能优化：一旦搜满 50 条立刻刹车，停止整个搜索过程
+                            if len(results) >= 50:
+                                return "\n".join(results) + f"\n... (匹配结果过多，仅显示前 50 条)"
+            except UnicodeDecodeError:
+                # 遇到非 UTF-8 的二进制文件直接跳过
+                pass
+            except Exception:
+                pass
+                
+    return "\n".join(results) if results else f"未找到包含 '{keyword}' 的代码。"
