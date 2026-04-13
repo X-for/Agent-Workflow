@@ -3,7 +3,7 @@
   "nodes": [
     {
       "id": "start_node",
-      "type": "system",
+      "type": "START",
       "output_ports": [{"id": "out_query"}]
     },
     {
@@ -16,7 +16,7 @@
     },
     {
       "id": "end_node",
-      "type": "system",
+      "type": "END",
       "input_ports": [{"id": "in_result"}]
     }
   ],

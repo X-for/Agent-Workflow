@@ -1,7 +1,18 @@
 {
   "name": "内容总结员",
-  "input_ports": [{"id": "raw_content", "name": "原始网页内容"}],
-  "output_ports": [{"id": "final_summary", "description": "总结完成的最终报告发到这里"}],
+  "type": "AGENT",
+  "input_ports": [
+    {
+      "id": "raw_content",
+      "name": "原始网页内容"
+    }
+  ],
+  "output_ports": [
+    {
+      "id": "final_summary",
+      "description": "总结完成的最终报告发到这里"
+    }
+  ],
   "model_name": "deepseek-chat",
   "tools": [],
   "system_prompt": "你是一个资深编辑。\n请阅读上游传来的原始网页内容，提取核心要点，输出一段结构清晰、精炼的中文总结报告。"

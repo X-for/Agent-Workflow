@@ -1,6 +1,6 @@
 import json
 import os
-from Agent import AgentNode
+from Agent import AgentNode, StartNode, EndNode
 
 from dotenv import load_dotenv
 
@@ -25,7 +25,9 @@ class GraphEngine:
         self.workflows_id = workflow_schema.get("workflows_id", "default_workflow")
         self.nodes_config = workflow_schema.get("nodes", [])
         self.connections = workflow_schema.get("connections", [])
-        self.tools_registry = workflow_schema.get("tools_registry", {})
+        
+        # 优先使用传入的 tool_registry，如果没有则尝试从配置中读取
+        self.tools_registry = tool_registry if tool_registry is not None else workflow_schema.get("tools_registry", {})
 
         self.routing_table = self._build_routing_table()
 
@@ -48,16 +50,29 @@ class GraphEngine:
         instances = {}
         for node_cfg in self.nodes_config:
             node_id = node_cfg.get("id")
+            node_type = node_cfg.get("type", "AGENT")  # 默认为AGENT类型
+            
             if "ref" in node_cfg:
                 # 通过引用路径加载独立的节点配置文件
                 config_target = node_cfg["ref"]
             else:
                 # 直接使用内嵌的配置
                 config_target = node_cfg
-            agent = AgentNode(config_target, tool_registry=self.tools_registry)
-            agent.name = node_id
-            instances[node_id] = agent
-            print(f"[GraphEngine] 成功加载并实例化节点: {node_id}")
+            
+            # 根据节点类型创建不同的实例
+            if node_type.upper() == "START":
+                node_instance = StartNode(config_target)
+            elif node_type.upper() == "END":
+                node_instance = EndNode(config_target)
+            elif node_type.upper() == "AGENT":
+                node_instance = AgentNode(config_target, tool_registry=self.tools_registry)
+            else:
+                # 默认为AgentNode
+                node_instance = AgentNode(config_target, tool_registry=self.tools_registry)
+            
+            node_instance.name = node_id
+            instances[node_id] = node_instance
+            print(f"[GraphEngine] 成功加载并实例化节点: {node_id} (类型: {node_type})")
         return instances
 
 

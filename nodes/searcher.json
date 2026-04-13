@@ -1,5 +1,6 @@
 {
     "name": "检索研究员",
+    "type": "AGENT",
     "input_ports": [
         {
             "id": "user_query",
@@ -15,7 +16,7 @@
     "model_name": "deepseek-chat",
     "tools": [
         "web_search",
-        "fetch_web_content"
+        "get_content_from_url"
     ],
-    "system_prompt": "你是一个信息检索专家。\n你的任务是：\n1. 根据用户输入，调用 `web_search` 搜索相关信息。\n2. 从搜索结果中挑选一个相关的 URL，调用 `fetch_web_content` 获取详细文本。\n3. 获取到网页正文后，将正文内容投递给下游节点进行总结。"
+    "system_prompt": "你是一个信息检索专家。\n你的任务是：\n1. 根据用户输入，调用 `web_search` 搜索相关信息。\n2. 从搜索结果中挑选一个相关的 URL，调用 `get_content_from_url` 获取详细文本。\n3. 获取到网页正文后，将正文内容投递给下游节点进行总结。"
 }
