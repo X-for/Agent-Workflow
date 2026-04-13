@@ -16,11 +16,11 @@ from Graph import GraphEngine
 import tools as backend_tools
 
 # 基础路径配置
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend", "dist")
-WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
-NODES_DIR = os.path.join(BASE_DIR, "nodes")
-SESSIONS_DIR = os.getenv("SESSIONS_DIR", os.path.join(BASE_DIR, "sessions"))
+BASE_DIR = os.environ.get("BASE_DIR")
+FRONTEND_DIR = os.environ.get("FRONTEND_DIR")
+WORKFLOWS_DIR = os.environ.get("WORKFLOW_DIR")
+NODES_DIR =os.environ.get("NODES_DIR")
+SESSIONS_DIR = os.environ.get("SESSIONS_DIR")
 
 os.makedirs(WORKFLOWS_DIR, exist_ok=True)
 os.makedirs(NODES_DIR, exist_ok=True)
@@ -230,6 +230,28 @@ async def list_workflows():
                 print(f"Error loading {file}: {e}")
     return {"status": "success", "workflows": workflows}
 
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str):
+    """获取单个工作流的详细配置"""
+    # 移除可能存在的 .json 后缀，统一处理
+    clean_id = workflow_id
+    if clean_id.endswith('.json'):
+        clean_id = clean_id[:-5]
+        
+    file_path = os.path.join(WORKFLOWS_DIR, f"{clean_id}.json")
+    
+    print(f"DEBUG: Loading workflow from {file_path}")
+        
+    if not os.path.exists(file_path):
+        return JSONResponse(status_code=404, content={"status": "error", "message": f"Workflow {clean_id} not found at {file_path}"})
+        
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return {"status": "success", "workflow": data}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+
 @app.post("/api/workflows")
 async def create_workflow(req: WorkflowCreateRequest):
     file_path = os.path.join(WORKFLOWS_DIR, req.filename)
@@ -251,16 +273,66 @@ async def create_workflow(req: WorkflowCreateRequest):
         
     return {"status": "success", "message": "Workflow created successfully"}
 
+@app.get("/api/sessions")
+async def list_sessions(workflow_id: str):
+    """获取指定工作流的所有会话列表"""
+    sessions = []
+    if os.path.exists(SESSIONS_DIR):
+        for file in os.listdir(SESSIONS_DIR):
+            # 兼容旧格式：session_xxx.json 或 default.json
+            # 新格式：workflowId_sessionId.json
+            is_new_format = file.startswith(f"{workflow_id}_")
+            is_old_format = file.startswith("session_") or file == "default.json"
+            
+            if file.endswith('.json') and (is_new_format or is_old_format):
+                session_id = file.replace('.json', '')
+                path = os.path.join(SESSIONS_DIR, file)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        messages = json.load(f)
+                        # 取第一条用户消息作为会话名称
+                        name = "新对话"
+                        for msg in messages:
+                            if msg['role'] == 'user':
+                                name = msg['content'][:20] + ("..." if len(msg['content']) > 20 else "")
+                                break
+                        
+                        # 如果是旧格式且没有 workflow 前缀，我们暂时允许它显示在当前工作流下
+                        # 或者你可以选择只显示匹配当前 workflow_id 的文件
+                        sessions.append({
+                            "id": session_id,
+                            "name": name,
+                            "messages": messages
+                        })
+                except Exception as e:
+                    print(f"Error loading session {file}: {e}")
+    
+    # 如果没有找到任何会话，返回一个默认的
+    if not sessions:
+        default_id = f"{workflow_id}_default"
+        sessions.append({
+            "id": default_id,
+            "name": "默认对话",
+            "messages": []
+        })
+        
+    return {"status": "success", "sessions": sessions}
+
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
     """
     处理前端的聊天请求，调用工作流引擎并返回结果
     """
     try:
-        print(f"\n🔄 接收到前端请求: {request.query}, Workflow: {request.workflow_id}")
+        # 确保 session_id 包含 workflow_id 前缀以区分不同工作流的会话
+        full_session_id = request.session_id
+        if not full_session_id.startswith(f"{request.workflow_id}_"):
+            full_session_id = f"{request.workflow_id}_{request.session_id}"
+
+        print(f"\n🔄 接收到前端请求: {request.query}, Workflow: {request.workflow_id}, Session: {full_session_id}")
         
         # 1. 获取或初始化该 Session 的记忆
-        messages = load_session_memory(request.session_id)
+        messages = load_session_memory(full_session_id)
         
         # 2. 将当前用户输入加入记忆
         messages.append({"role": "user", "content": request.query})
@@ -280,7 +352,7 @@ async def chat_endpoint(request: ChatRequest):
         
         # 4. 将助手回答加入记忆并保存
         messages.append({"role": "assistant", "content": final_result})
-        save_session_memory(request.session_id, messages)
+        save_session_memory(full_session_id, messages)
         
         print(f"✅ 工作流处理完毕，返回结果长度: {len(str(final_result))}")
         return {"status": "success", "result": final_result}

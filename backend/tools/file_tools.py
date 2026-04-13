@@ -8,7 +8,7 @@ import subprocess
 load_dotenv()
 
 # 1. 增强环境变量的容错：提供默认路径
-WORKSPACE_BASE = os.environ.get("WORKSPACE_BASE", "./workspace")
+WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "./workspace")
 
 
 def get_safe_task_dir(config: RunnableConfig) -> str:
@@ -17,7 +17,7 @@ def get_safe_task_dir(config: RunnableConfig) -> str:
     configurable = config.get("configurable", {})
     thread_id = configurable.get("thread_id", "default_task")
 
-    task_dir = os.path.abspath(os.path.join(WORKSPACE_BASE, thread_id))
+    task_dir = os.path.abspath(os.path.join(WORKSPACE_DIR, thread_id))
     if not os.path.exists(task_dir):
         os.makedirs(task_dir, exist_ok=True)
     return task_dir
@@ -110,7 +110,7 @@ def list_files_in_directory(config: RunnableConfig) -> str:
         return f"列出目录时发生错误: {str(e)}"
     
 # 假设当前文件在 backend/tools/ 目录下，那么它的上两级 "../../" 就是项目根目录
-PROJECT_ROOT = os.environ.get("PROJECTS_DIR", WORKSPACE_BASE)
+PROJECT_ROOT = os.environ.get("PROJECTS_DIR", WORKSPACE_DIR)
 
 
 @tool

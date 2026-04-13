@@ -58,7 +58,7 @@ def execute_python_code(code: str) -> str:
 
 
 # 引入您之前在 file_tools.py 里定义好的大本营变量
-WORKSPACE_BASE = os.environ.get("WORKSPACE_BASE", "/home/zaq/Workspace/")
+WORKSPACE_BASE = os.environ.get("WORKSPACE_DIR", "/home/zaq/Workspace/")
 
 @tool
 @log

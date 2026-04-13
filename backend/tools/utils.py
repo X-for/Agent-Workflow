@@ -7,7 +7,7 @@ load_dotenv()
 from langchain_core.tools import tool
 import functools
 
-WORKSPACE_BASE = os.getenv("WORKSPACE_BASE",
+WORKSPACE_DIR = os.getenv("WORKSPACE_DIR",
                            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "custom_workspace")))
 
 

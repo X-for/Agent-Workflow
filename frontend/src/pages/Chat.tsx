@@ -1,8 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
-import { Send, Bot, User, ShieldAlert, Zap, Moon, Sun, Plus, MessageSquare, ChevronDown } from 'lucide-react'
+import { useParams, Link } from 'react-router-dom'
+import { 
+  Send, 
+  Bot, 
+  User, 
+  ShieldAlert, 
+  Zap, 
+  Moon, 
+  Sun, 
+  Plus, 
+  MessageSquare, 
+  ChevronDown, 
+  ChevronLeft, 
+  Trash2, 
+  History 
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import axios from 'axios'
+import { useTheme } from '../App'
 
 interface Message {
   id: string
@@ -18,33 +33,56 @@ interface Session {
 
 export default function Chat() {
   const { workflowId } = useParams<{ workflowId: string }>()
-  const [isDarkMode, setIsDarkMode] = useState(false)
-  const [sessions, setSessions] = useState<Session[]>([
-    {
-      id: 'default',
-      name: '默认对话',
-      messages: [
-        {
-          id: 'init',
-          role: 'assistant',
-          content: `你好！👋 我是 **${workflowId}** 工作流助手。\n我可以调动背后的多个专家 Agent 协同为您工作。请输入您的问题，我们将为您提供详尽的解答与总结。`
-        }
-      ]
-    }
-  ])
-  const [currentSessionId, setCurrentSessionId] = useState('default')
+  const { isDarkMode, toggleDarkMode } = useTheme()
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [currentSessionId, setCurrentSessionId] = useState('')
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showSessionList, setShowSessionList] = useState(false)
   
-  const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0]
+  // 加载会话列表
+  useEffect(() => {
+    const fetchSessions = async () => {
+      if (!workflowId) return;
+      try {
+        console.log('正在请求会话列表，workflowId:', workflowId);
+        const res = await axios.get(`/api/sessions?workflow_id=${workflowId}`)
+        console.log('收到会话列表响应:', res.data);
+        if (res.data.status === 'success') {
+          const loadedSessions = res.data.sessions.map((s: any) => ({
+            ...s,
+            messages: s.messages && s.messages.length > 0 ? s.messages : [
+              {
+                id: 'init',
+                role: 'assistant',
+                content: `你好！👋 我是 **${workflowId}** 工作流助手。\n我可以调动背后的多个专家 Agent 协同为您工作。请输入您的问题，我们将为您提供详尽的解答与总结。`
+              }
+            ]
+          }))
+          setSessions(loadedSessions)
+          if (loadedSessions.length > 0) {
+            // 优先选择当前已选中的 ID，如果没有则选第一个
+            setCurrentSessionId(prev => {
+              const exists = loadedSessions.find((ls: any) => ls.id === prev);
+              return exists ? prev : loadedSessions[0].id;
+            });
+          }
+        }
+      } catch (err) {
+        console.error('加载会话失败:', err)
+      }
+    }
+    fetchSessions()
+  }, [workflowId])
+
+  const currentSession = sessions.find(s => s.id === currentSessionId) || (sessions.length > 0 ? sessions[0] : { id: '', name: '', messages: [] })
   const messages = currentSession.messages
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const createNewSession = () => {
-    const newId = `session_${Date.now()}`
+    const newId = `${workflowId}_session_${Date.now()}`
     const newSession: Session = {
       id: newId,
       name: `新对话 ${sessions.length + 1}`,
@@ -94,11 +132,17 @@ export default function Chat() {
     }
 
     // 更新当前 Session 的消息
-    setSessions(prev => prev.map(s => 
-      s.id === currentSessionId 
-        ? { ...s, messages: [...s.messages, userMessage] }
-        : s
-    ))
+    setSessions(prev => prev.map(s => {
+      if (s.id === currentSessionId) {
+        // 如果是第一条用户消息，更新会话名称
+        const isFirstUserMessage = s.messages.filter(m => m.role === 'user').length === 0;
+        const newName = isFirstUserMessage 
+          ? (userMessage.content.slice(0, 20) + (userMessage.content.length > 20 ? '...' : ''))
+          : s.name;
+        return { ...s, name: newName, messages: [...s.messages, userMessage] };
+      }
+      return s;
+    }))
     
     setInput('')
     setIsLoading(true)
@@ -206,8 +250,8 @@ export default function Chat() {
         </div>
 
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setIsDarkMode(!isDarkMode)}
+          <button
+            onClick={toggleDarkMode}
             className={`p-2 rounded-full transition-colors ${isDarkMode ? 'bg-gray-700 text-yellow-400 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}

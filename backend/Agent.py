@@ -13,7 +13,7 @@ load_dotenv()  # 加载环境变量
 
 AGENT_CONFIG_DIR = os.environ.get("AGENT_CONFIG_DIR", "./nodes")
 BASEDIR = os.environ.get("BASE_DIR", ".")
-
+USER_NAME = os.environ.get("USER", "")
 
 class Node:
     """
@@ -111,6 +111,7 @@ class AgentNode(Node):
 
         routing_instruction = f"""
         \n\n=========================
+        {("用户名字是" + USER_NAME)  if USER_NAME else ""}
         【最终交付协议】（极其重要）
         当你完成当前节点任务时，你可以自主决定将数据分发到一个或【多个】合适的端口。
         当前你可用的输出端口有：
