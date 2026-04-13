@@ -1,0 +1,37 @@
+{
+  "workflow_id": "test_search_and_summary",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "system",
+      "output_ports": [{"id": "out_query"}]
+    },
+    {
+      "id": "searcher_agent",
+      "ref": "searcher.json" 
+    },
+    {
+      "id": "summarizer_agent",
+      "ref": "summarizer.json"
+    },
+    {
+      "id": "end_node",
+      "type": "system",
+      "input_ports": [{"id": "in_result"}]
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "start_node", "source_port": "out_query",
+      "target_node": "searcher_agent", "target_port": "user_query"
+    },
+    {
+      "source_node": "searcher_agent", "source_port": "fetched_content",
+      "target_node": "summarizer_agent", "target_port": "raw_content"
+    },
+    {
+      "source_node": "summarizer_agent", "source_port": "final_summary",
+      "target_node": "end_node", "target_port": "in_result"
+    }
+  ]
+}

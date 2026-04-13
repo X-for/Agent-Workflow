@@ -268,3 +268,4 @@ models.json
 start.bat
 start.py
 start.sh
+tmp/
