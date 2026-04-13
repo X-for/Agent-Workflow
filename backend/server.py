@@ -1,11 +1,16 @@
 import os
 import json
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 from Graph import GraphEngine
 import tools as backend_tools
@@ -15,9 +20,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend", "dist")
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
 NODES_DIR = os.path.join(BASE_DIR, "nodes")
+SESSIONS_DIR = os.getenv("SESSIONS_DIR", os.path.join(BASE_DIR, "sessions"))
 
 os.makedirs(WORKFLOWS_DIR, exist_ok=True)
 os.makedirs(NODES_DIR, exist_ok=True)
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 
 # 初始化 FastAPI
 app = FastAPI(title="Agent Workflow API")
@@ -69,6 +76,38 @@ def get_engine(workflow_id: str):
 class ChatRequest(BaseModel):
     query: str
     workflow_id: str = "test.json"
+    session_id: str = "default"
+
+# 内存存储对话历史 (后续可持久化到数据库)
+# 结构: { session_id: [ {role: "user", content: "..."}, ... ] }
+chat_memories = {}
+
+def load_session_memory(session_id: str):
+    """从文件加载 Session 记忆"""
+    if session_id in chat_memories:
+        return chat_memories[session_id]
+    
+    file_path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                chat_memories[session_id] = json.load(f)
+                return chat_memories[session_id]
+        except Exception as e:
+            print(f"加载 Session {session_id} 失败: {e}")
+    
+    chat_memories[session_id] = []
+    return []
+
+def save_session_memory(session_id: str, messages: list):
+    """保存 Session 记忆到文件"""
+    chat_memories[session_id] = messages
+    file_path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
+    try:
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(messages, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"保存 Session {session_id} 失败: {e}")
 
 class WorkflowCreateRequest(BaseModel):
     filename: str
@@ -220,17 +259,28 @@ async def chat_endpoint(request: ChatRequest):
     try:
         print(f"\n🔄 接收到前端请求: {request.query}, Workflow: {request.workflow_id}")
         
+        # 1. 获取或初始化该 Session 的记忆
+        messages = load_session_memory(request.session_id)
+        
+        # 2. 将当前用户输入加入记忆
+        messages.append({"role": "user", "content": request.query})
+        
         engine = get_engine(request.workflow_id)
         
-        # 启动工作流
+        # 3. 传入记忆上下文启动工作流
         final_global_state = engine.run(
             start_node_id="start_node",
             start_port_id="out_query",
-            initial_data=request.query
+            initial_data=request.query,
+            history=messages
         )
         
-        # 提取最终输出结果
+        # 获取结果
         final_result = final_global_state.get("end_node:text_output", "未找到结果")
+        
+        # 4. 将助手回答加入记忆并保存
+        messages.append({"role": "assistant", "content": final_result})
+        save_session_memory(request.session_id, messages)
         
         print(f"✅ 工作流处理完毕，返回结果长度: {len(str(final_result))}")
         return {"status": "success", "result": final_result}

@@ -109,7 +109,6 @@ class AgentNode(Node):
             p_desc = p.get("description", "未提供描述")
             port_options_str += f"- 【{p_id}】: {p_desc}\n"
 
-        # ✨【核心修复】：将 target_port 改为 deliveries 数组
         routing_instruction = f"""
         \n\n=========================
         【最终交付协议】（极其重要）
@@ -135,10 +134,21 @@ class AgentNode(Node):
         ```
         """
         
-        messages = [
-            SystemMessage(content=self.system_prompt + routing_instruction),
-            HumanMessage(content=f"请根据以下输入执行任务：\n{combined_input}")
-        ]
+        # 注入历史记忆 (Memory)
+        history = state.get("history", [])
+        messages = [SystemMessage(content=self.system_prompt + routing_instruction)]
+        
+        # 将历史记录转换为 LangChain 消息格式
+        from langchain_core.messages import AIMessage
+        for msg in history:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                # 简单处理，不包含工具调用历史，仅包含最终文本
+                messages.append(AIMessage(content=msg.get("content", "")))
+
+        # 添加当前任务输入
+        messages.append(HumanMessage(content=f"请根据以下输入执行任务：\n{combined_input}"))
 
         # --- 步骤 3：内部微型 Agent Loop (自主调用工具并收集结果) ---
         max_iterations = 10  # 防止大模型内部死循环的物理限制

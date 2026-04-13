@@ -114,12 +114,14 @@ class GraphEngine:
         # 这里可以实现一个消息队列或者WebSocket连接，将消息发送到前端
         print(f"[frontend] {message}")
 
-    def run(self, start_node_id: str, start_port_id: str, initial_data: any):
+    def run(self, start_node_id: str, start_port_id: str, initial_data: any, history: list = None):
         """
         启动工作流
         """
         print(f"[GraphEngine] 启动工作流...")
-        global_state = {}
+        global_state = {
+            "history": history or []
+        }
 
         initial_box_key = f"{start_node_id}:{start_port_id}"
         global_state[initial_box_key] = initial_data
