@@ -2,6 +2,16 @@ from .utils import *
 import subprocess
 import sys
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 从环境变量加载真实的工作区目录，如果没有则使用默认路径
+WORKSPACE_BASE = os.environ.get("WORKSPACE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../workspaces")))
+
+# 确保工作区目录存在
+if not os.path.exists(WORKSPACE_BASE):
+    os.makedirs(WORKSPACE_BASE, exist_ok=True)
 
 @tool
 @log
@@ -24,13 +34,14 @@ def execute_python_code(code: str) -> str:
     这样隔离环境就会自动为你安装它们！
     会返回标准输出 (stdout) 或完整的错误跟踪日志 (stderr)。
     """
-    temp_script = "sandbox_temp.py"
+    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.py")
     try:
         with open(temp_script, "w", encoding="utf-8") as f:
             f.write(code)
             
         result = subprocess.run(
             ["uv", "run", "--isolated", temp_script],
+            cwd=WORKSPACE_BASE,
             capture_output=True,
             text=True,
             timeout=30 
@@ -58,13 +69,14 @@ def execute_javascript_code(code: str) -> str:
     返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
     注意：系统需要预先安装好 Node.js 环境。
     """
-    temp_script = "sandbox_temp.js"
+    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.js")
     try:
         with open(temp_script, "w", encoding="utf-8") as f:
             f.write(code)
             
         result = subprocess.run(
             ["node", temp_script],
+            cwd=WORKSPACE_BASE,
             capture_output=True,
             text=True,
             timeout=15 
@@ -93,7 +105,7 @@ def execute_bash_script(script: str) -> str:
     输入必须是合法的 Bash 脚本内容。
     返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
     """
-    temp_script = "sandbox_temp.sh"
+    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.sh")
     try:
         with open(temp_script, "w", encoding="utf-8") as f:
             f.write(script)
@@ -103,6 +115,7 @@ def execute_bash_script(script: str) -> str:
             
         result = subprocess.run(
             cmd,
+            cwd=WORKSPACE_BASE,
             capture_output=True,
             text=True,
             timeout=15 
@@ -122,10 +135,6 @@ def execute_bash_script(script: str) -> str:
     finally:
         if os.path.exists(temp_script):
             os.remove(temp_script)
-
-
-# 引入您之前在 file_tools.py 里定义好的大本营变量
-WORKSPACE_BASE = os.environ.get("WORKSPACE_DIR", "/home/zaq/Workspace/")
 
 @tool
 @log

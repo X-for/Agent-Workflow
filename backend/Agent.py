@@ -358,7 +358,19 @@ class EndNode(Node):
 
         # 从state中获取最终结果
         final_result_key = f"{self.name}:{in_port_id}"
-        final_result = state.get(final_result_key, state.get("final_result", "无结果"))
+        
+        # 兼容处理：可能被存放在 f"{self.name}:{in_port_id}"，也可能是在配置覆盖时的其他名字
+        final_result = state.get(final_result_key)
+        
+        # 遍历 state 寻找可能投递给这个 End 节点的任何输入数据
+        if final_result is None:
+            for key, val in state.items():
+                if key.startswith(f"{self.name}:") and key != f"{self.name}:system_message":
+                    final_result = val
+                    break
+        
+        if final_result is None:
+            final_result = "无结果"
         
         # 解析结果并转换为文本
         parsed_text = self._parse_to_text(final_result)

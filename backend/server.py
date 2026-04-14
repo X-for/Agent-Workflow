@@ -362,7 +362,12 @@ async def chat_endpoint(request: ChatRequest):
         )
         
         # 获取结果
-        final_result = final_global_state.get("end_node:text_output", "未找到结果")
+        # 兼容查找：寻找任何以 end_node: 开头的键
+        final_result = "未找到结果"
+        for key, val in final_global_state.items():
+            if key.startswith("end_node:") and key != "end_node:system_message":
+                final_result = val
+                break
         
         # 4. 将助手回答加入记忆并保存
         messages.append({"role": "assistant", "content": final_result})
