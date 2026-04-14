@@ -1,0 +1,238 @@
+{
+  "workflow_id": "general_multi_agent",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": {
+        "x": 50,
+        "y": 300
+      },
+      "output_ports": [
+        {
+          "id": "out_query"
+        }
+      ]
+    },
+    {
+      "id": "node_dispatcher",
+      "type": "AGENT",
+      "name": "任务拆解与路由中枢",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个顶级任务拆解与路由分发专家。\n你的任务是接收用户的复杂问题，将其拆解为具体可执行的子任务，并将这些子任务分发给专业的下级Agent。\n\n你可以根据需要，决定向以下哪些端口输出任务指令：\n- 【code_task】: 需要编写、执行代码或操作系统命令的任务\n- 【search_task】: 需要在互联网上搜索实时信息或查阅网页的任务\n- 【analysis_task】: 需要分析本地文件、读取数据库、查阅项目结构的分析类任务\n\n如果你认为某个子任务不需要执行，可以不向该端口发送数据。\n请用清晰的指令告诉下级Agent他们需要做什么。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "user_query",
+          "name": "用户输入"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "code_task",
+          "description": "分配给代码专家的任务"
+        },
+        {
+          "id": "search_task",
+          "description": "分配给搜索专家的任务"
+        },
+        {
+          "id": "analysis_task",
+          "description": "分配给分析专家的任务"
+        }
+      ],
+      "position": {
+        "x": 350,
+        "y": 300
+      }
+    },
+    {
+      "id": "node_coder",
+      "type": "AGENT",
+      "name": "代码执行专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个强大的全栈程序员与系统运维专家。你可以使用工具执行 Python、JavaScript 或 Bash 脚本，也能安全地将代码写入本地文件。收到任务后，请自行编写代码并执行，验证无误后，将你的执行结果或总结输出。",
+      "tools": [
+        "execute_python_code",
+        "execute_javascript_code",
+        "execute_bash_script",
+        "git_safe_modify"
+      ],
+      "input_ports": [
+        {
+          "id": "code_task",
+          "name": "代码任务"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "code_result",
+          "description": "代码执行结果"
+        }
+      ],
+      "position": {
+        "x": 750,
+        "y": 100
+      }
+    },
+    {
+      "id": "node_searcher",
+      "type": "AGENT",
+      "name": "全网搜索专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个情报收集专家。当你收到搜索任务时，使用搜索工具在互联网上寻找最新的、准确的信息。如果有必要，可以抓取特定网页的正文。整理好情报后输出。",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ],
+      "input_ports": [
+        {
+          "id": "search_task",
+          "name": "搜索任务"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "search_result",
+          "description": "搜索结果摘要"
+        }
+      ],
+      "position": {
+        "x": 750,
+        "y": 300
+      }
+    },
+    {
+      "id": "node_analyzer",
+      "type": "AGENT",
+      "name": "数据与项目分析专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个资深数据分析师和架构师。你可以读取本地文件、查阅数据库结构、执行 SQL 查询，或者扫描整个项目结构。收到任务后，仔细分析数据或代码结构，提炼出有价值的洞察并输出。",
+      "tools": [
+        "execute_sql_query",
+        "get_database_schema",
+        "read_local_file",
+        "search_project",
+        "list_files_in_directory",
+        "get_project_structure",
+        "search_code"
+      ],
+      "input_ports": [
+        {
+          "id": "analysis_task",
+          "name": "分析任务"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "analysis_result",
+          "description": "分析报告"
+        }
+      ],
+      "position": {
+        "x": 750,
+        "y": 500
+      }
+    },
+    {
+      "id": "node_summarizer",
+      "type": "AGENT",
+      "name": "全局总结与报告专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个资深的报告撰写人。\n你将接收到来自【代码专家】、【搜索专家】和【分析专家】的各种执行结果。如果某个端口没有数据传来，说明该项任务无需执行。\n请你综合所有收到的情报和结果，以优美的 Markdown 格式向用户输出一份逻辑清晰、全面且易读的最终回答。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "code_result",
+          "name": "代码结果"
+        },
+        {
+          "id": "search_result",
+          "name": "搜索结果"
+        },
+        {
+          "id": "analysis_result",
+          "name": "分析结果"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "final_summary",
+          "description": "最终总结回复"
+        }
+      ],
+      "position": {
+        "x": 1200,
+        "y": 300
+      }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": {
+        "x": 1600,
+        "y": 300
+      },
+      "input_ports": [
+        {
+          "id": "in_result"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "node_dispatcher",
+      "target_port": "user_query"
+    },
+    {
+      "source_node": "node_dispatcher",
+      "source_port": "code_task",
+      "target_node": "node_coder",
+      "target_port": "code_task"
+    },
+    {
+      "source_node": "node_dispatcher",
+      "source_port": "search_task",
+      "target_node": "node_searcher",
+      "target_port": "search_task"
+    },
+    {
+      "source_node": "node_dispatcher",
+      "source_port": "analysis_task",
+      "target_node": "node_analyzer",
+      "target_port": "analysis_task"
+    },
+    {
+      "source_node": "node_coder",
+      "source_port": "code_result",
+      "target_node": "node_summarizer",
+      "target_port": "code_result"
+    },
+    {
+      "source_node": "node_searcher",
+      "source_port": "search_result",
+      "target_node": "node_summarizer",
+      "target_port": "search_result"
+    },
+    {
+      "source_node": "node_analyzer",
+      "source_port": "analysis_result",
+      "target_node": "node_summarizer",
+      "target_port": "analysis_result"
+    },
+    {
+      "source_node": "node_summarizer",
+      "source_port": "final_summary",
+      "target_node": "end_node",
+      "target_port": "in_result"
+    }
+  ]
+}

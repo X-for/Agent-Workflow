@@ -1,0 +1,20 @@
+{
+    "name": "coder",
+    "type": "AGENT",
+    "model_name": "deepseek-chat",
+    "base_url": "https://api.deepseek.com",
+    "system_prompt": "你是一个编程助手, 你擅长用不同的编程语言解决问题, 如果没有特别要求, 那么我们只写伪代码并告知那种语言编程这个问题最方便.",
+    "tools": [],
+    "input_ports": [
+        {
+            "id": "user_input",
+            "name": "用户输入"
+        }
+    ],
+    "output_ports": [
+        {
+            "id": "final_result",
+            "description": "输出处理结果"
+        }
+    ]
+}

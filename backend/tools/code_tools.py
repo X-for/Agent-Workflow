@@ -24,22 +24,16 @@ def execute_python_code(code: str) -> str:
     这样隔离环境就会自动为你安装它们！
     会返回标准输出 (stdout) 或完整的错误跟踪日志 (stderr)。
     """
-    # 我们把代码写入一个临时文件，让 uv run 去执行它
-    # 这样 uv 会自动处理 PEP 723 的依赖并在沙盒里运行
     temp_script = "sandbox_temp.py"
-    
     try:
-        # 将生成的代码写入临时文件
         with open(temp_script, "w", encoding="utf-8") as f:
             f.write(code)
             
-        # 使用 uv run 来隔离执行这个脚本
-        # 加上 --isolated 可以防止它读取当前项目的全局依赖
         result = subprocess.run(
             ["uv", "run", "--isolated", temp_script],
             capture_output=True,
             text=True,
-            timeout=30  # 给安装第三方包留出充足的时间
+            timeout=30 
         )
         
         if result.returncode == 0:
@@ -52,7 +46,80 @@ def execute_python_code(code: str) -> str:
     except Exception as e:
         return f"沙盒环境发生未知错误: {str(e)}"
     finally:
-        # 无论成功失败，清理临时文件
+        if os.path.exists(temp_script):
+            os.remove(temp_script)
+
+@tool
+@log
+def execute_javascript_code(code: str) -> str:
+    """
+    在子进程环境中执行 JavaScript/Node.js 代码。
+    输入必须是合法的 JavaScript 代码字符串。
+    返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
+    注意：系统需要预先安装好 Node.js 环境。
+    """
+    temp_script = "sandbox_temp.js"
+    try:
+        with open(temp_script, "w", encoding="utf-8") as f:
+            f.write(code)
+            
+        result = subprocess.run(
+            ["node", temp_script],
+            capture_output=True,
+            text=True,
+            timeout=15 
+        )
+        
+        if result.returncode == 0:
+            return f"JS代码执行成功。\n标准输出:\n{result.stdout}"
+        else:
+            return f"JS代码执行报错 (退出码 {result.returncode})。\n错误日志:\n{result.stderr}"
+            
+    except FileNotFoundError:
+        return "错误: 未找到 Node.js 环境。请确保已安装 node 并加入到系统 PATH 中。"
+    except subprocess.TimeoutExpired:
+        return "错误: JS代码执行超时 (超过 15 秒)。"
+    except Exception as e:
+        return f"JS执行沙盒发生未知错误: {str(e)}"
+    finally:
+        if os.path.exists(temp_script):
+            os.remove(temp_script)
+
+@tool
+@log
+def execute_bash_script(script: str) -> str:
+    """
+    在子进程环境中执行 Bash shell 脚本。
+    输入必须是合法的 Bash 脚本内容。
+    返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
+    """
+    temp_script = "sandbox_temp.sh"
+    try:
+        with open(temp_script, "w", encoding="utf-8") as f:
+            f.write(script)
+            
+        # 根据系统平台选择执行方式
+        cmd = ["bash", temp_script] if os.name != "nt" else ["bash.exe", temp_script]
+            
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15 
+        )
+        
+        if result.returncode == 0:
+            return f"Bash脚本执行成功。\n标准输出:\n{result.stdout}"
+        else:
+            return f"Bash脚本执行报错 (退出码 {result.returncode})。\n错误日志:\n{result.stderr}"
+            
+    except FileNotFoundError:
+        return "错误: 当前环境不支持 Bash 或未找到 Bash 解释器。"
+    except subprocess.TimeoutExpired:
+        return "错误: Bash脚本执行超时 (超过 15 秒)。"
+    except Exception as e:
+        return f"Bash执行沙盒发生未知错误: {str(e)}"
+    finally:
         if os.path.exists(temp_script):
             os.remove(temp_script)
 
