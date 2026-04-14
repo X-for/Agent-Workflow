@@ -30,8 +30,8 @@ powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'FRONTEND
 powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'SESSIONS_DIR=%cd%\sessions'"
 powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'NODES_DIR=%cd%\nodes'"
 powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'LOG_LEVEL=INFO'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'OPENROUTER_API_KEY=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'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'DEEPSEEK_API_KEY=sk-de9c0366377944bdada1c88a797f205b'"
+powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'OPENROUTER_API_KEY=your_openrouter_api_key_here'"
+powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'DEEPSEEK_API_KEY=your_deepseek_api_key_here'"
 
 REM 显示 .env 文件内容
 echo .env 文件内容：
