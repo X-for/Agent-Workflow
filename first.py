@@ -1,5 +1,4 @@
 import os
-import shutil
 from dotenv import load_dotenv
 
 # 尝试加载现有环境变量作为默认值
@@ -50,13 +49,24 @@ if __name__ == "__main__":
     }
 
     print("=== Agent Workflow 项目初始化工具 ===")
-    print("请确认以下配置（直接回车使用默认值）：\n")
+    
+    use_default = input("是否直接使用默认路径和基础配置？(Y/n): ").strip().lower()
+    auto_mode = use_default in ["", "y", "yes"]
 
     final_config = {}
     for key, default_value in config_schema.items():
-        # 优先从当前环境变量获取，如果没有则使用 schema 中的默认值
         current_val = get_default(key, default_value)
         
+        # 自动模式下跳过非关键路径配置
+        if auto_mode and key not in ["DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"]:
+            final_config[key] = current_val
+            continue
+            
+        # 自动模式下，如果 API KEY 已经有值，直接跳过
+        if auto_mode and key in ["DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"] and current_val:
+            final_config[key] = current_val
+            continue
+
         user_input = input(f"请输入 {key} (当前值: {current_val}): ").strip()
         
         # 如果用户输入为空，则保留当前值
@@ -66,4 +76,5 @@ if __name__ == "__main__":
     create_project_directories(final_config)
     save_config_to_env(final_config)
 
-    print("\n[完成] 项目环境初始化成功！现在可以启动后端服务了。")
+    print("\n[完成] 项目环境初始化成功！")
+    print("提示: 您可以分别启动前端 (npm run dev) 和后端 (cd backend && uv run uvicorn server:app --reload) 服务。")

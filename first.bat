@@ -1,41 +1,46 @@
 
 
 @echo off
+chcp 65001 >nul
 
 REM Windows 第一次设置脚本
-echo === Windows 第一次设置脚本 ===
+echo === Agent Workflow 第一次设置脚本 ===
 
-REM 1. 安装 uv (Python 包管理器)
-echo 1. 安装 uv...
-powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
+REM 检查 npm
+where npm >nul 2>nul
+if %errorlevel% neq 0 (
+    echo [警告] 未检测到 npm。请先安装 Node.js 和 npm 后再运行前端。
+) else (
+    echo 1. 安装前端依赖...
+    if exist frontend\ (
+        cd frontend
+        call npm install
+        cd ..
+    ) else (
+        echo [错误] 未找到 frontend 目录！
+    )
+)
 
-REM 2. 同步依赖
-echo 2. 同步依赖...
-uv sync
+REM 安装 uv (Python 包管理器)
+echo 2. 检查并安装 uv...
+where uv >nul 2>nul
+if %errorlevel% neq 0 (
+    powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"
+    REM 添加到当前会话的 PATH 中
+    set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+) else (
+    echo uv 已安装，跳过。
+)
 
-REM 3. 设置 .env 环境目录
-echo 3. 设置 .env 环境目录...
+REM 同步依赖
+echo 3. 同步后端依赖...
+call uv sync
 
-REM 创建 .env 文件
-powershell -ExecutionPolicy Bypass -c "New-Item -ItemType File -Path '.env' -Force"
-
-REM 设置环境变量
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'USER_NAME=user'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'BASE_DIR=%cd%'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'WORKFLOW_DIR=%cd%\workflows'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'WORKSPACE_DIR=%cd%\workspaces'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'CHAT_DIR=%cd%\chats'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'PROJECTS_DIR=%cd%'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'FRONTEND_DIR=%cd%\frontend'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'SESSIONS_DIR=%cd%\sessions'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'NODES_DIR=%cd%\nodes'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'LOG_LEVEL=INFO'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'OPENROUTER_API_KEY=your_openrouter_api_key_here'"
-powershell -ExecutionPolicy Bypass -c "Add-Content -Path '.env' -Value 'DEEPSEEK_API_KEY=your_deepseek_api_key_here'"
-
-REM 显示 .env 文件内容
-echo .env 文件内容：
-type .env
+REM 运行初始化脚本
+echo 4. 初始化项目配置...
+call uv run python first.py
 
 echo === 设置完成！ ===
+echo 后端启动: cd backend ^&^& uv run uvicorn server:app --reload
+echo 前端启动: cd frontend ^&^& npm run dev
 pause

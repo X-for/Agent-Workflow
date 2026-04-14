@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, FileJson, Edit3 } from 'lucide-react'
+import { Play, FileJson, Edit3, Trash2 } from 'lucide-react'
 import axios from 'axios'
 import { useTheme } from '../App'
 
@@ -83,6 +83,27 @@ export default function Selection() {
                     title="修改工作流结构"
                   >
                     <Edit3 size={18} />
+                  </button>
+                  <button 
+                    onClick={async () => {
+                      if (confirm(`确定要删除工作流 "${wf.name || wf.id}" 吗？此操作不可恢复。`)) {
+                        try {
+                          await axios.delete(`/api/workflows/${wf.id}`);
+                          setWorkflows(prev => prev.filter(w => w.id !== wf.id));
+                        } catch (err) {
+                          alert('删除失败，请检查控制台');
+                          console.error(err);
+                        }
+                      }
+                    }}
+                    className={`px-4 flex items-center justify-center rounded-xl font-medium transition-colors ${
+                      isDarkMode 
+                        ? 'bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-800/50' 
+                        : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200'
+                    }`}
+                    title="删除工作流"
+                  >
+                    <Trash2 size={18} />
                   </button>
                 </div>
               </div>

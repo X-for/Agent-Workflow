@@ -252,6 +252,20 @@ async def get_workflow(workflow_id: str):
     except Exception as e:
         return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow(workflow_id: str):
+    """删除工作流"""
+    clean_id = workflow_id
+    if clean_id.endswith('.json'):
+        clean_id = clean_id[:-5]
+    file_path = os.path.join(WORKFLOWS_DIR, f"{clean_id}.json")
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        if f"{clean_id}.json" in engine_cache:
+            del engine_cache[f"{clean_id}.json"]
+        return {"status": "success", "message": "Workflow deleted"}
+    return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow not found"})
+
 @app.post("/api/workflows")
 async def create_workflow(req: WorkflowCreateRequest):
     file_path = os.path.join(WORKFLOWS_DIR, req.filename)

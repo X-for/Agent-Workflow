@@ -312,8 +312,23 @@ export default function Creation() {
     if(confirm('确定要清空画布吗？')) {
       setNodes([])
       setEdges([])
+      setSelectedNode(null)
       id = 0
     }
+  }
+
+  const deleteSelected = () => {
+    const hasSelectedNodes = nodes.some(n => n.selected)
+    const hasSelectedEdges = edges.some(e => e.selected)
+    
+    if (!hasSelectedNodes && !hasSelectedEdges) {
+      alert('请先在画布中点击选中要删除的节点或连线！')
+      return
+    }
+
+    setNodes(nds => nds.filter(n => !n.selected))
+    setEdges(eds => eds.filter(e => !e.selected))
+    setSelectedNode(null)
   }
 
   return (
@@ -321,7 +336,7 @@ export default function Creation() {
       <div className={`px-6 py-4 border-b flex justify-between items-center z-10 shadow-sm transition-colors duration-300 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
         <div>
           <h1 className={`text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>拖拽式工作流构建器</h1>
-          <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>从右侧拖拽组件以创建多智能体协作流</p>
+          <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>从右侧拖拽组件以创建多智能体协作流，支持选中后删除 (或按 Backspace 键)</p>
         </div>
         <div className="flex items-center gap-4">
           <input 
@@ -331,11 +346,19 @@ export default function Creation() {
             placeholder="workflow_name.json"
           />
           <button 
+            onClick={deleteSelected}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${isDarkMode ? 'bg-red-900/40 hover:bg-red-900/60 text-red-400 border border-red-800/50' : 'bg-red-50 hover:bg-red-100 text-red-600 border border-red-200'}`}
+            title="删除选中的节点或连线"
+          >
+            <Trash2 size={16} /> 删除选中
+          </button>
+          <button 
             onClick={clearCanvas}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}
           >
             <RefreshCcw size={16} /> 清空
           </button>
+
           <button 
             onClick={saveWorkflow}
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors shadow-md hover:shadow-lg"

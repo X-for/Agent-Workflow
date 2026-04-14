@@ -57,12 +57,24 @@ def get_content_from_url(url: str) -> str:
         response.raise_for_status()  # 如果请求失败会抛出异常
         
         soup = BeautifulSoup(response.text, 'html.parser')
-        # 提取网页的标题和正文（这只是一个简单的示例，实际情况可能需要更复杂的解析）
-        title = soup.title.string if soup.title else "无标题"
-        paragraphs = soup.find_all('p')
-        content = "\n".join(p.get_text() for p in paragraphs[:5])  # 只取前5段
         
-        return f"网页标题: {title}\n网页内容:\n{content}"
+        # 移除不需要的标签（脚本、样式等）
+        for script in soup(["script", "style", "nav", "footer", "iframe"]):
+            script.decompose()
+            
+        title = soup.title.string if soup.title else "无标题"
+        
+        # 提取正文并稍微清理多余的空行
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        # 限制长度以避免 token 过大
+        if len(text) > 8000:
+            text = text[:8000] + "\n\n... (内容过长，已截断)"
+            
+        return f"网页标题: {title}\n网页内容:\n{text}"
         
     except Exception as e:
         return f"获取网页内容时发生错误: {str(e)}"

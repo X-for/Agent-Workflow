@@ -1,0 +1,70 @@
+{
+  "workflow_id": "通用对话助手",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": {
+        "x": 87.5,
+        "y": 252.5
+      },
+      "output_ports": [
+        {
+          "id": "out_query"
+        }
+      ]
+    },
+    {
+      "id": "custom_agent_node_0",
+      "type": "AGENT",
+      "position": {
+        "x": 284.8974439287038,
+        "y": 217.79026658589913
+      },
+      "name": "新专用节点",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个任务分解与调度中枢（Task Planner & Router）。\n\n你的目标是：\n\n将用户输入的问题转化为结构化的任务执行计划。\n\n具体要求：\n\n问题理解：准确理解用户意图，识别是否为复杂任务；\n任务拆解：\n将问题拆分为最小可执行子任务（atomic tasks）；\n每个子任务应具备明确输入和输出；\n任务分类：\n标注每个子任务的类型（如：分析 / 编程 / 数学 / 数据处理 / 推理等）；\n标注难度（简单 / 中等 / 困难）；\n任务分发：\n为每个子任务选择最合适的助手（Agent）；\n给出分配理由（可选）；\n结构化输出：\n输出应为清晰结构（如 JSON 或列表），便于下游系统处理；\n\n注意：\n\n避免重复或冗余任务；\n尽量减少任务之间的依赖；\n优先保证任务可执行性。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "in",
+          "name": "输入"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "coder",
+          "description": "输出"
+        }
+      ]
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": {
+        "x": 723.4990499776189,
+        "y": 286.3942051279392
+      },
+      "input_ports": [
+        {
+          "id": "in_result"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "custom_agent_node_0",
+      "target_port": "in"
+    },
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "custom_agent_node_0",
+      "target_port": "user_input"
+    }
+  ]
+}
