@@ -114,7 +114,7 @@ class GraphEngine:
         # 这里可以实现一个消息队列或者WebSocket连接，将消息发送到前端
         print(f"[frontend] {message}")
 
-    def run(self, start_node_id: str, start_port_id: str, initial_data: any, history: list = None):
+    async def run(self, start_node_id: str, start_port_id: str, initial_data: any, history: list = None):
         """
         启动工作流
         """
@@ -128,28 +128,59 @@ class GraphEngine:
 
         active_queue = [start_node_id]
         step = 0
+        
+        import asyncio
+        import inspect
+
         while active_queue:
             step += 1
             if step > 50:
                 print("[GraphEngine] 警告: 迭代次数过多，可能存在循环依赖，已强制停止。")
                 break
-            current_node_id = active_queue.pop(0)
-            if current_node_id not in self.agent_instances:
-                print(f"[GraphEngine] 错误: 未找到节点实例 {current_node_id}，跳过执行。")
-                continue
-            print(f"\n[GraphEngine] 执行节点: {current_node_id}")
-            agent = self.agent_instances[current_node_id]
-            agent_result = agent.node_func(global_state)
-            # 防止旧版 Agent 返回格式不兼容
-            if "latest_node_output" in agent_result:
-                agent_output_json = agent_result["latest_node_output"]
-            else:
-                agent_output_json = agent_result
-            global_state, next_nodes = self.send_message(agent_output_json, global_state)
+                
+            # 取出当前层级所有的节点进行并发执行
+            current_batch = active_queue[:]
+            active_queue.clear()
+            
+            print(f"\n[GraphEngine] 第 {step} 层级并发执行节点: {current_batch}")
+            
+            async def process_node(current_node_id):
+                if current_node_id not in self.agent_instances:
+                    print(f"[GraphEngine] 错误: 未找到节点实例 {current_node_id}，跳过执行。")
+                    return None
+                    
+                print(f"[GraphEngine] 开始执行节点: {current_node_id}")
+                agent = self.agent_instances[current_node_id]
+                
+                # 兼容：如果 node_func 是异步的就 await
+                if inspect.iscoroutinefunction(agent.node_func):
+                    agent_result = await agent.node_func(global_state)
+                else:
+                    agent_result = agent.node_func(global_state)
+                    
+                # 防止旧版 Agent 返回格式不兼容
+                if "latest_node_output" in agent_result:
+                    agent_output_json = agent_result["latest_node_output"]
+                else:
+                    agent_output_json = agent_result
+                    
+                return agent_output_json
 
-        # 3. 将下一批收到信的节点加入激活队列
-            # 使用列表推导式去重并保持顺序（模拟先进先出）
-            for node in next_nodes:
+            # 并发执行当前批次的所有节点任务
+            batch_results = await asyncio.gather(*(process_node(node_id) for node_id in current_batch))
+            
+            # 收集当前批次执行后产生的所有下一步节点
+            next_nodes_to_run = set()
+            for agent_output_json in batch_results:
+                if not agent_output_json:
+                    continue
+                # 更新全局状态并获取下一跳节点
+                global_state, next_nodes = self.send_message(agent_output_json, global_state)
+                for node in next_nodes:
+                    next_nodes_to_run.add(node)
+
+            # 将下一批收到信的节点加入激活队列
+            for node in next_nodes_to_run:
                 if node not in active_queue:
                     active_queue.append(node)
                     

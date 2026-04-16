@@ -45,19 +45,46 @@ class AgentNode(Node):
         self.output_ports = self.cfg.get('output_ports', [])
 
         # 核心配置
-        self.model_name = self.cfg.get('model_name', 'chat-deepseek')
+        self.model_name = self.cfg.get('model_name', 'deepseek-chat')
         self.system_prompt = self.cfg.get('system_prompt', '')
         self.tools_name = self.cfg.get('tools', [])
-        api = self.cfg.get("api", "DEEPSEEK_API_KEY")
+        
+        # 智能匹配 API Key：
+        # 如果 base_url 包含 openrouter，则使用 OPENROUTER_API_KEY
+        # 如果 base_url 包含 openai，则使用 OPENAI_API_KEY
+        # 否则默认尝试 DEEPSEEK_API_KEY
+        base_url = self.cfg.get("base_url", "https://api.deepseek.com")
+        if "openrouter" in base_url.lower():
+            api_env_key = "OPENROUTER_API_KEY"
+        elif "openai" in base_url.lower():
+            api_env_key = "OPENAI_API_KEY"
+        else:
+            api_env_key = self.cfg.get("api", "DEEPSEEK_API_KEY")
+            
+        api_key = os.environ.get(api_env_key)
+        if not api_key:
+            print(f"⚠️ 警告: 节点 [{self.name}] 试图使用的 API Key ({api_env_key}) 在环境变量中为空或未设置！")
+            # 为防止 LangChain 抛出致命异常，当拿不到 key 时提供一个假 key
+            # 但真实的 API 请求仍然会失败（被服务商拒绝），这样能保证服务不崩，只会将错误优雅地传递给前端
+            api_key = "dummy_key_please_set_environment_variable"
 
         # 初始化llm
         # 1. 初始化 LLM
-        llm = ChatOpenAI(
-            model=self.model_name,
-            api_key=os.environ.get(api),
-            base_url=self.cfg.get("base_url", "https://api.deepseek.com"),
-            temperature=self.cfg.get("temperature", 0.1)
-        )
+        # 如果是 OpenRouter，需要去掉 max_tokens 参数，或者设置一个小一点的默认值
+        llm_kwargs = {
+            "model": self.model_name,
+            "api_key": api_key,
+            "base_url": base_url,
+            "temperature": self.cfg.get("temperature", 0.1)
+        }
+        
+        # 很多第三方平台（特别是 OpenRouter）对 max_tokens 有严格的信用额度限制
+        # 如果我们在初始化时不传，LangChain 默认可能会传一个很大的值，导致报错 402
+        if "openrouter" in base_url.lower():
+            # 为 OpenRouter 显式设置一个较小且安全的 max_tokens，避免超出免费/基础账户额度
+            llm_kwargs["max_tokens"] = self.cfg.get("max_tokens", 4096)
+            
+        llm = ChatOpenAI(**llm_kwargs)
 
         self.tools_map = {}
         actual_tools = []
@@ -83,7 +110,7 @@ class AgentNode(Node):
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def node_func(self, state: dict) -> dict:
+    async def node_func(self, state: dict) -> dict:
         """
         核心执行逻辑（包含内部工具闭环）
         """
@@ -157,7 +184,7 @@ class AgentNode(Node):
 
         while iteration < max_iterations:
             iteration += 1
-            response = self.llm.invoke(messages)
+            response = await self.llm.ainvoke(messages)
             messages.append(response)
 
             # 如果大模型没有要求调用工具，说明它已经得出了最终结论，退出内循环！
@@ -175,7 +202,15 @@ class AgentNode(Node):
                 if tool_name in self.tools_map:
                     try:
                         print(f"[{self.name}] 正在执行工具: {tool_name} ...")
-                        tool_result = self.tools_map[tool_name].invoke(tool_args)
+                        # 如果工具支持异步则调用 ainvoke，否则调用 invoke
+                        tool_obj = self.tools_map[tool_name]
+                        if hasattr(tool_obj, "ainvoke"):
+                            try:
+                                tool_result = await tool_obj.ainvoke(tool_args)
+                            except NotImplementedError:
+                                tool_result = tool_obj.invoke(tool_args)
+                        else:
+                            tool_result = tool_obj.invoke(tool_args)
                         print(f"[{self.name}] 工具 {tool_name} 执行成功！")
                     except Exception as e:
                         tool_result = f"工具执行异常: {str(e)}"

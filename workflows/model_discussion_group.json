@@ -1,0 +1,222 @@
+{
+  "workflow_id": "model_discussion_group",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": {
+        "x": 50,
+        "y": 300
+      },
+      "output_ports": [
+        {
+          "id": "out_query"
+        }
+      ]
+    },
+    {
+      "id": "node_moderator",
+      "type": "AGENT",
+      "name": "方案讨论主持人",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个方案讨论组的主持人。\n你的任务是接收用户提出的“解决方案”、“架构设计”或“改进思路”，并将其作为议题，**同时**分发给三位具有不同特长的AI模型去评审。\n\n请向以下三个端口输出任务指令（直接转发或提炼用户的方案核心均可）：\n- 【to_model_a】: 发送给主攻“逻辑与算法”的模型\n- 【to_model_b】: 发送给主攻“创新与体验”的模型\n- 【to_model_c】: 发送给主攻“工程与架构”的模型",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "user_input",
+          "name": "用户发言"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "to_model_a",
+          "description": "发给模型A"
+        },
+        {
+          "id": "to_model_b",
+          "description": "发给模型B"
+        },
+        {
+          "id": "to_model_c",
+          "description": "发给模型C"
+        }
+      ],
+      "position": {
+        "x": 300,
+        "y": 300
+      }
+    },
+    {
+      "id": "node_model_a",
+      "type": "AGENT",
+      "name": "逻辑与推理模型 (DeepSeek特长)",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是以“深度推理、逻辑严密、算法优化”为特长的模型。请针对收到的方案，从逻辑漏洞、边界条件、算法复杂度、性能瓶颈等最硬核的底层逻辑角度提出你的尖锐意见和改进建议。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "to_model_a",
+          "name": "主持人议题"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "opinion_a",
+          "description": "模型A意见"
+        }
+      ],
+      "position": {
+        "x": 650,
+        "y": 100
+      }
+    },
+    {
+      "id": "node_model_b",
+      "type": "AGENT",
+      "name": "创新与体验模型 (Claude特长)",
+      "model_name": "anthropic/claude-opus-4.6",
+      "base_url": "https://openrouter.ai/api/v1",
+      "system_prompt": "你是以“用户同理心、开阔脑洞、交互体验”为特长的模型。请针对收到的方案，跳出传统的代码思维，从用户交互(UX)、创意发散、使用场景拓展、以及文本和文档组织的优雅性等角度，提出你的独特见解。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "to_model_b",
+          "name": "主持人议题"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "opinion_b",
+          "description": "模型B意见"
+        }
+      ],
+      "position": {
+        "x": 650,
+        "y": 300
+      }
+    },
+    {
+      "id": "node_model_c",
+      "type": "AGENT",
+      "name": "工程与架构模型 (GPT-4特长)",
+      "model_name": "openai/gpt-5.4",
+      "base_url": "https://openrouter.ai/api/v1",
+      "system_prompt": "你是以“工程落地、系统架构、生态兼容”为特长的模型。请针对收到的方案，从主流技术栈选型、代码可维护性、系统可扩展性、部署运维成本等实际工程落地的角度，给出你的务实建议和替代方案对比。",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "to_model_c",
+          "name": "主持人议题"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "opinion_c",
+          "description": "模型C意见"
+        }
+      ],
+      "position": {
+        "x": 650,
+        "y": 500
+      }
+    },
+    {
+      "id": "node_synthesizer",
+      "type": "AGENT",
+      "name": "讨论组总结员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是一个高水平的方案总结员。\n你将接收到来自【逻辑与推理模型】、【创新与体验模型】和【工程与架构模型】的独立意见。\n你的任务是将这些各具特色的意见汇总成一份结构清晰的《多模型综合评审报告》。\n请使用 Markdown 格式，明确对比不同模型视角的优势和担忧，并在最后引导用户：“您可以对以上评审结果提出疑问，或者指出接下来的修改方向，我们将继续为您深入探讨。”",
+      "tools": [],
+      "input_ports": [
+        {
+          "id": "opinion_a",
+          "name": "模型A意见"
+        },
+        {
+          "id": "opinion_b",
+          "name": "模型B意见"
+        },
+        {
+          "id": "opinion_c",
+          "name": "模型C意见"
+        }
+      ],
+      "output_ports": [
+        {
+          "id": "final_report",
+          "description": "最终总结报告"
+        }
+      ],
+      "position": {
+        "x": 1050,
+        "y": 300
+      }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": {
+        "x": 1350,
+        "y": 300
+      },
+      "input_ports": [
+        {
+          "id": "in_result"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "node_moderator",
+      "target_port": "user_input"
+    },
+    {
+      "source_node": "node_moderator",
+      "source_port": "to_model_a",
+      "target_node": "node_model_a",
+      "target_port": "to_model_a"
+    },
+    {
+      "source_node": "node_moderator",
+      "source_port": "to_model_b",
+      "target_node": "node_model_b",
+      "target_port": "to_model_b"
+    },
+    {
+      "source_node": "node_moderator",
+      "source_port": "to_model_c",
+      "target_node": "node_model_c",
+      "target_port": "to_model_c"
+    },
+    {
+      "source_node": "node_model_a",
+      "source_port": "opinion_a",
+      "target_node": "node_synthesizer",
+      "target_port": "opinion_a"
+    },
+    {
+      "source_node": "node_model_b",
+      "source_port": "opinion_b",
+      "target_node": "node_synthesizer",
+      "target_port": "opinion_b"
+    },
+    {
+      "source_node": "node_model_c",
+      "source_port": "opinion_c",
+      "target_node": "node_synthesizer",
+      "target_port": "opinion_c"
+    },
+    {
+      "source_node": "node_synthesizer",
+      "source_port": "final_report",
+      "target_node": "end_node",
+      "target_port": "in_result"
+    }
+  ]
+}

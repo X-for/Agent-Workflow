@@ -353,8 +353,8 @@ async def chat_endpoint(request: ChatRequest):
         
         engine = get_engine(request.workflow_id)
         
-        # 3. 传入记忆上下文启动工作流
-        final_global_state = engine.run(
+        # 3. 传入记忆上下文启动工作流 (已改为纯异步调用)
+        final_global_state = await engine.run(
             start_node_id="start_node",
             start_port_id="out_query",
             initial_data=request.query,

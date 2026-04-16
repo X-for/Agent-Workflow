@@ -11,6 +11,7 @@ import {
   Plus, 
   MessageSquare, 
   ChevronDown, 
+  Square,
   ChevronLeft, 
   Trash2, 
   History 
@@ -39,8 +40,10 @@ export default function Chat() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showSessionList, setShowSessionList] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
   
   // 加载会话列表
+
   useEffect(() => {
     const fetchSessions = async () => {
       if (!workflowId) return;
@@ -118,8 +121,18 @@ export default function Chat() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      sendMessage()
+      if (!isLoading) {
+        sendMessage()
+      }
     }
+  }
+
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setIsLoading(false)
   }
 
   const sendMessage = async () => {
@@ -151,11 +164,16 @@ export default function Chat() {
       textareaRef.current.style.height = 'auto'
     }
 
+    // 创建一个新的 AbortController 实例用于取消请求
+    abortControllerRef.current = new AbortController()
+
     try {
       const res = await axios.post('/api/chat', { 
         workflow_id: workflowId,
         query: userMessage.content,
         session_id: currentSessionId // 传递 session_id 以便后端处理记忆
+      }, {
+        signal: abortControllerRef.current.signal
       })
       
       const assistantMessage: Message = {
@@ -170,19 +188,34 @@ export default function Chat() {
           : s
       ))
     } catch (err: any) {
-      console.error(err)
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `❌ 处理请求时发生错误: ${err.message}\n请检查后端服务是否正常运行。`
+      if (axios.isCancel(err)) {
+        console.log('请求被用户中断')
+        const cancelMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `⚠️ 对话已中止。您可以在下方继续提问。`
+        }
+        setSessions(prev => prev.map(s => 
+          s.id === currentSessionId 
+            ? { ...s, messages: [...s.messages, cancelMessage] }
+            : s
+        ))
+      } else {
+        console.error(err)
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: `❌ 处理请求时发生错误: ${err.message}\n请检查后端服务是否正常运行。`
+        }
+        setSessions(prev => prev.map(s => 
+          s.id === currentSessionId 
+            ? { ...s, messages: [...s.messages, errorMessage] }
+            : s
+        ))
       }
-      setSessions(prev => prev.map(s => 
-        s.id === currentSessionId 
-          ? { ...s, messages: [...s.messages, errorMessage] }
-          : s
-      ))
     } finally {
       setIsLoading(false)
+      abortControllerRef.current = null
     }
   }
 
@@ -327,11 +360,16 @@ export default function Chat() {
             />
           </div>
           <button
-            onClick={sendMessage}
-            disabled={!input.trim() || isLoading}
-            className="w-12 h-12 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600 disabled:shadow-none flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            onClick={isLoading ? stopGeneration : sendMessage}
+            disabled={!isLoading && !input.trim()}
+            className={`w-12 h-12 rounded-full flex items-center justify-center shadow-md transition-all flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none ${
+              isLoading 
+                ? 'bg-red-500 hover:bg-red-600 focus:ring-red-500 text-white animate-pulse' 
+                : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 text-white disabled:hover:bg-blue-600'
+            }`}
+            title={isLoading ? "中止生成" : "发送消息"}
           >
-            <Send size={18} className="ml-[-2px]" />
+            {isLoading ? <Square size={16} fill="currentColor" /> : <Send size={18} className="ml-[-2px]" />}
           </button>
         </div>
         <div className="max-w-4xl mx-auto mt-3 text-center">
