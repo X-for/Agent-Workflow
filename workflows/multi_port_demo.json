@@ -1,0 +1,57 @@
+{
+  "connections": [
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "splitter",
+      "target_port": "user_query"
+    },
+    {
+      "source_node": "splitter",
+      "source_port": "a",
+      "target_node": "joiner",
+      "target_port": "a_in"
+    },
+    {
+      "source_node": "splitter",
+      "source_port": "b",
+      "target_node": "joiner",
+      "target_port": "b_in"
+    },
+    {
+      "source_node": "joiner",
+      "source_port": "final",
+      "target_node": "end_node",
+      "target_port": "in_result"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start_node",
+      "output_ports": [
+        {
+          "id": "out_query"
+        }
+      ],
+      "type": "START"
+    },
+    {
+      "id": "splitter",
+      "ref": "multi_port_splitter.json"
+    },
+    {
+      "id": "joiner",
+      "ref": "multi_port_joiner.json"
+    },
+    {
+      "id": "end_node",
+      "input_ports": [
+        {
+          "id": "in_result"
+        }
+      ],
+      "type": "END"
+    }
+  ],
+  "workflow_id": "multi_port_demo"
+}

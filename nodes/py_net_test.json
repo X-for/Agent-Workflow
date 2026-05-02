@@ -1,0 +1,22 @@
+{
+  "base_url": "https://api.deepseek.com",
+  "input_ports": [
+    {
+      "id": "in",
+      "name": "输入"
+    }
+  ],
+  "model_name": "deepseek-chat",
+  "name": "Python网络测试",
+  "output_ports": [
+    {
+      "description": "执行输出",
+      "id": "out"
+    }
+  ],
+  "system_prompt": "你必须调用 execute_python_code 执行以下Python代码。然后把工具返回的输出内容原样（逐字）投递到 out 端口，不要添加任何额外文字。代码：\nimport urllib.request\ntry:\n  urllib.request.urlopen(\"https://example.com\",timeout=5).read(20)\n  print(\"NETWORK_OK\")\nexcept Exception as e:\n  print(\"NETWORK_FAIL:\", type(e).__name__, str(e)[:120])\n",
+  "tools": [
+    "execute_python_code"
+  ],
+  "type": "AGENT"
+}

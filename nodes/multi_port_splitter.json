@@ -1,0 +1,24 @@
+{
+  "base_url": "https://api.deepseek.com",
+  "input_ports": [
+    {
+      "id": "user_query",
+      "name": "用户问题"
+    }
+  ],
+  "model_name": "deepseek-chat",
+  "name": "多端口拆分器",
+  "output_ports": [
+    {
+      "description": "概念解释",
+      "id": "a"
+    },
+    {
+      "description": "最小示例",
+      "id": "b"
+    }
+  ],
+  "system_prompt": "你是一个信息拆分器。根据用户输入，把内容拆成两部分：A=概念解释(一段话)，B=一个最小示例(代码块)。必须分别投递到两个输出端口。",
+  "tools": [],
+  "type": "AGENT"
+}

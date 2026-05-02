@@ -43,8 +43,8 @@
       "id": "end_node",
       "type": "END",
       "position": {
-        "x": 723.4990499776189,
-        "y": 286.3942051279392
+        "x": 620.1570745786316,
+        "y": 291.36788308831825
       },
       "input_ports": [
         {
@@ -65,6 +65,12 @@
       "source_port": "out_query",
       "target_node": "custom_agent_node_0",
       "target_port": "user_input"
+    },
+    {
+      "source_node": "custom_agent_node_0",
+      "source_port": "coder",
+      "target_node": "end_node",
+      "target_port": "in_result"
     }
   ]
 }

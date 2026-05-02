@@ -1,0 +1,41 @@
+{
+  "connections": [
+    {
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "py",
+      "target_port": "in"
+    },
+    {
+      "source_node": "py",
+      "source_port": "out",
+      "target_node": "end_node",
+      "target_port": "in_result"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start_node",
+      "output_ports": [
+        {
+          "id": "out_query"
+        }
+      ],
+      "type": "START"
+    },
+    {
+      "id": "py",
+      "ref": "py_sandbox.json"
+    },
+    {
+      "id": "end_node",
+      "input_ports": [
+        {
+          "id": "in_result"
+        }
+      ],
+      "type": "END"
+    }
+  ],
+  "workflow_id": "py_sandbox_demo"
+}
