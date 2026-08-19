@@ -271,3 +271,4 @@ start.sh
 tmp/
 sessions/
 workspaces/
+.pnpm-store/

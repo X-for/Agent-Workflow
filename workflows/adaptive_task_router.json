@@ -1,0 +1,155 @@
+{
+  "workflow_id": "adaptive_task_router",
+  "name": "自适应任务路由",
+  "description": "识别软件、研究、数据和内容任务，选择必要专家并汇总结果；普通问题直接返回。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 50, "y": 360 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户原始任务" }
+      ]
+    },
+    {
+      "id": "task_router",
+      "type": "AGENT",
+      "name": "任务识别与路由器",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是任务识别与路由器。判断用户任务需要哪些能力，并将自包含的子任务投递到对应端口：\n- 【software_task】：代码、项目修改、调试或软件设计；\n- 【research_task】：互联网检索、事实调查或资料研究；\n- 【data_task】：数据读取、清洗、统计或数据库分析；\n- 【content_task】：策划、写作、改写或内容审校；\n- 【direct_answer】：不需要专家工具的普通问答，payload 是可直接返回用户的完整答案。\n可以同时选择多个专家端口，但 direct_answer 不能与专家端口同时选择。不要向无关端口发送占位内容，只使用已声明端口。",
+      "tools": [],
+      "input_ports": [
+        { "id": "user_task", "name": "用户任务" }
+      ],
+      "output_ports": [
+        { "id": "software_task", "description": "软件开发子任务" },
+        { "id": "research_task", "description": "深度研究子任务" },
+        { "id": "data_task", "description": "数据分析子任务" },
+        { "id": "content_task", "description": "内容创作子任务" },
+        { "id": "direct_answer", "description": "无需专家处理的直接答案" }
+      ],
+      "position": { "x": 330, "y": 360 }
+    },
+    {
+      "id": "software_specialist",
+      "type": "AGENT",
+      "name": "软件专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是软件专家。完成收到的软件子任务，先理解项目现状，再实施或提出最小可靠方案；必要时执行代码和测试。输出实际结果、变更、验证和风险，只投递到【software_result】。",
+      "tools": [
+        "get_project_structure",
+        "search_code",
+        "read_local_file",
+        "git_safe_modify",
+        "execute_python_code",
+        "execute_javascript_code",
+        "execute_bash_script"
+      ],
+      "input_ports": [
+        { "id": "software_task", "name": "软件任务" }
+      ],
+      "output_ports": [
+        { "id": "software_result", "description": "软件任务执行结果" }
+      ],
+      "position": { "x": 720, "y": 80 }
+    },
+    {
+      "id": "research_specialist",
+      "type": "AGENT",
+      "name": "研究专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是研究专家。检索并交叉核验收到的研究子任务，优先权威和原始来源；区分事实、争议和推断，保留来源标题、URL 与日期。只投递到【research_result】。",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ],
+      "input_ports": [
+        { "id": "research_task", "name": "研究任务" }
+      ],
+      "output_ports": [
+        { "id": "research_result", "description": "研究与核验结果" }
+      ],
+      "position": { "x": 720, "y": 270 }
+    },
+    {
+      "id": "data_specialist",
+      "type": "AGENT",
+      "name": "数据专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是数据专家。安全读取并分析指定数据，记录清洗规则和实际计算过程，区分相关与因果，不得编造数值。输出关键发现、复现方式、限制和建议，只投递到【data_result】。",
+      "tools": [
+        "read_local_file",
+        "get_database_schema",
+        "execute_sql_query",
+        "execute_python_code"
+      ],
+      "input_ports": [
+        { "id": "data_task", "name": "数据任务" }
+      ],
+      "output_ports": [
+        { "id": "data_result", "description": "数据分析结果" }
+      ],
+      "position": { "x": 720, "y": 460 }
+    },
+    {
+      "id": "content_specialist",
+      "type": "AGENT",
+      "name": "内容专家",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是内容创作专家。根据目标受众、场景、语气和格式要求完成内容任务，确保结构、逻辑和表达一致。不得虚构用户未提供的事实。只投递到【content_result】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "content_task", "name": "内容任务" }
+      ],
+      "output_ports": [
+        { "id": "content_result", "description": "内容创作结果" }
+      ],
+      "position": { "x": 720, "y": 650 }
+    },
+    {
+      "id": "result_aggregator",
+      "type": "AGENT",
+      "name": "结果汇总器",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是跨领域结果汇总器。可能收到一个或多个专家结果，缺失端口表示该分支未执行。综合实际输入，消除重复和冲突，按用户目标组织最终答案，并明确证据、产物、限制和下一步。只投递到【final_result】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "software_result", "name": "软件结果" },
+        { "id": "research_result", "name": "研究结果" },
+        { "id": "data_result", "name": "数据结果" },
+        { "id": "content_result", "name": "内容结果" }
+      ],
+      "output_ports": [
+        { "id": "final_result", "description": "多专家综合结果" }
+      ],
+      "position": { "x": 1120, "y": 360 }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1500, "y": 360 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
+  "connections": [
+    { "source_node": "start_node", "source_port": "out_query", "target_node": "task_router", "target_port": "user_task" },
+    { "source_node": "task_router", "source_port": "software_task", "target_node": "software_specialist", "target_port": "software_task" },
+    { "source_node": "task_router", "source_port": "research_task", "target_node": "research_specialist", "target_port": "research_task" },
+    { "source_node": "task_router", "source_port": "data_task", "target_node": "data_specialist", "target_port": "data_task" },
+    { "source_node": "task_router", "source_port": "content_task", "target_node": "content_specialist", "target_port": "content_task" },
+    { "source_node": "task_router", "source_port": "direct_answer", "target_node": "end_node", "target_port": "in_result" },
+    { "source_node": "software_specialist", "source_port": "software_result", "target_node": "result_aggregator", "target_port": "software_result" },
+    { "source_node": "research_specialist", "source_port": "research_result", "target_node": "result_aggregator", "target_port": "research_result" },
+    { "source_node": "data_specialist", "source_port": "data_result", "target_node": "result_aggregator", "target_port": "data_result" },
+    { "source_node": "content_specialist", "source_port": "content_result", "target_node": "result_aggregator", "target_port": "content_result" },
+    { "source_node": "result_aggregator", "source_port": "final_result", "target_node": "end_node", "target_port": "in_result" }
+  ]
+}

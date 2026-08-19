@@ -1,4 +1,37 @@
 {
+  "workflow_id": "py_sandbox_demo",
+  "name": "Python 受控执行演示",
+  "description": "调用 Python 执行工具完成最小代码任务并返回结果。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 80, "y": 240 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户任务" }
+      ]
+    },
+    {
+      "id": "py",
+      "type": "AGENT",
+      "ref": "py_sandbox.json",
+      "position": { "x": 400, "y": 240 },
+      "input_ports": [
+        { "id": "in", "name": "代码任务" }
+      ],
+      "output_ports": [
+        { "id": "out", "description": "代码执行结果" }
+      ]
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 740, "y": 240 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
   "connections": [
     {
       "source_node": "start_node",
@@ -12,30 +45,5 @@
       "target_node": "end_node",
       "target_port": "in_result"
     }
-  ],
-  "nodes": [
-    {
-      "id": "start_node",
-      "output_ports": [
-        {
-          "id": "out_query"
-        }
-      ],
-      "type": "START"
-    },
-    {
-      "id": "py",
-      "ref": "py_sandbox.json"
-    },
-    {
-      "id": "end_node",
-      "input_ports": [
-        {
-          "id": "in_result"
-        }
-      ],
-      "type": "END"
-    }
-  ],
-  "workflow_id": "py_sandbox_demo"
+  ]
 }

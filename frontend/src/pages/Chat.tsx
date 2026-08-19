@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { 
   Send, 
   Bot, 
@@ -12,9 +12,6 @@ import {
   MessageSquare, 
   ChevronDown, 
   Square,
-  ChevronLeft, 
-  Trash2, 
-  History 
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import axios from 'axios'
@@ -32,6 +29,12 @@ interface Session {
   messages: Message[]
 }
 
+const createRequestId = () => (
+  typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID().replace(/[^A-Za-z0-9_-]/g, '')
+    : `request_${Date.now()}_${Math.random().toString(36).slice(2)}`
+)
+
 export default function Chat() {
   const { workflowId } = useParams<{ workflowId: string }>()
   const { isDarkMode, toggleDarkMode } = useTheme()
@@ -41,6 +44,8 @@ export default function Chat() {
   const [isLoading, setIsLoading] = useState(false)
   const [showSessionList, setShowSessionList] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const activeRequestIdRef = useRef<string | null>(null)
+  const userCancelledRef = useRef(false)
   
   // 加载会话列表
 
@@ -49,7 +54,7 @@ export default function Chat() {
       if (!workflowId) return;
       try {
         console.log('正在请求会话列表，workflowId:', workflowId);
-        const res = await axios.get(`/api/sessions?workflow_id=${workflowId}`)
+        const res = await axios.get(`/api/sessions?workflow_id=${encodeURIComponent(workflowId)}`)
         console.log('收到会话列表响应:', res.data);
         if (res.data.status === 'success') {
           const loadedSessions = res.data.sessions.map((s: any) => ({
@@ -128,6 +133,14 @@ export default function Chat() {
   }
 
   const stopGeneration = () => {
+    userCancelledRef.current = true
+    const requestId = activeRequestIdRef.current
+    if (requestId) {
+      // 取消接口使用独立请求，不复用即将中止的 signal。
+      void axios.post(`/api/chat/${requestId}/cancel`).catch(err => {
+        console.warn('后端任务取消请求失败:', err)
+      })
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
       abortControllerRef.current = null
@@ -166,12 +179,16 @@ export default function Chat() {
 
     // 创建一个新的 AbortController 实例用于取消请求
     abortControllerRef.current = new AbortController()
+    const requestId = createRequestId()
+    activeRequestIdRef.current = requestId
+    userCancelledRef.current = false
 
     try {
       const res = await axios.post('/api/chat', { 
         workflow_id: workflowId,
         query: userMessage.content,
-        session_id: currentSessionId // 传递 session_id 以便后端处理记忆
+        session_id: currentSessionId,
+        request_id: requestId,
       }, {
         signal: abortControllerRef.current.signal
       })
@@ -188,7 +205,7 @@ export default function Chat() {
           : s
       ))
     } catch (err: any) {
-      if (axios.isCancel(err)) {
+      if (userCancelledRef.current || axios.isCancel(err)) {
         console.log('请求被用户中断')
         const cancelMessage: Message = {
           id: (Date.now() + 1).toString(),
@@ -216,6 +233,10 @@ export default function Chat() {
     } finally {
       setIsLoading(false)
       abortControllerRef.current = null
+      if (activeRequestIdRef.current === requestId) {
+        activeRequestIdRef.current = null
+      }
+      userCancelledRef.current = false
     }
   }
 

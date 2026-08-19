@@ -1,5 +1,7 @@
 {
   "workflow_id": "general_multi_agent",
+  "name": "通用多智能体协作",
+  "description": "根据任务类型选择代码、检索和项目分析专家，并汇总已执行分支的结果。",
   "nodes": [
     {
       "id": "start_node",
@@ -20,7 +22,7 @@
       "name": "任务拆解与路由中枢",
       "model_name": "deepseek-chat",
       "base_url": "https://api.deepseek.com",
-      "system_prompt": "你是一个顶级任务拆解与路由分发专家。\n你的任务是接收用户的复杂问题，将其拆解为具体可执行的子任务，并将这些子任务分发给专业的下级Agent。\n\n你可以根据需要，决定向以下哪些端口输出任务指令：\n- 【code_task】: 需要编写、执行代码或操作系统命令的任务\n- 【search_task】: 需要在互联网上搜索实时信息或查阅网页的任务\n- 【analysis_task】: 需要分析本地文件、读取数据库、查阅项目结构的分析类任务\n\n如果你认为某个子任务不需要执行，可以不向该端口发送数据。\n请用清晰的指令告诉下级Agent他们需要做什么。",
+      "system_prompt": "你是任务拆解与路由中枢。先判断用户请求需要哪些能力，再把最小可执行任务投递到对应端口。\n\n端口选择规则：\n- 【code_task】：仅用于编写或执行代码、运行命令、修改项目文件；\n- 【search_task】：仅用于需要互联网实时信息、网页检索或网页正文的任务；\n- 【analysis_task】：仅用于读取本地文件、代码、数据库或项目结构并进行分析的任务；\n- 【direct_answer】：用于不需要专业工具或后续节点的普通问答，payload 必须是可直接返回用户的完整答案。\n\n可以同时选择多个专业端口，也可以只选择一个；但 direct_answer 不能和专业端口同时选择。不要向不需要的端口投递占位内容。每个专业端口的 payload 必须是下游专家可独立执行的明确指令。只使用已声明端口。",
       "tools": [],
       "input_ports": [
         {
@@ -40,6 +42,10 @@
         {
           "id": "analysis_task",
           "description": "分配给分析专家的任务"
+        },
+        {
+          "id": "direct_answer",
+          "description": "无需专业分支时直接返回用户的完整答案"
         }
       ],
       "position": {
@@ -144,7 +150,7 @@
       "name": "全局总结与报告专家",
       "model_name": "deepseek-chat",
       "base_url": "https://api.deepseek.com",
-      "system_prompt": "你是一个资深的报告撰写人。\n你将接收到来自【代码专家】、【搜索专家】和【分析专家】的各种执行结果。如果某个端口没有数据传来，说明该项任务无需执行。\n请你综合所有收到的情报和结果，以优美的 Markdown 格式向用户输出一份逻辑清晰、全面且易读的最终回答。",
+      "system_prompt": "你是最终答案汇总器。你可能收到代码、检索、分析三个端口中的一个或多个结果；缺失端口代表该分支未执行，不是错误。只依据实际收到的内容进行综合，消除重复与矛盾，突出结论、证据和必要的风险说明，使用清晰的 Markdown 输出。最终答案只投递到【final_summary】端口。",
       "tools": [],
       "input_ports": [
         {
@@ -209,6 +215,12 @@
       "source_port": "analysis_task",
       "target_node": "node_analyzer",
       "target_port": "analysis_task"
+    },
+    {
+      "source_node": "node_dispatcher",
+      "source_port": "direct_answer",
+      "target_node": "end_node",
+      "target_port": "in_result"
     },
     {
       "source_node": "node_coder",

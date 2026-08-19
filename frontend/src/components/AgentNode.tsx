@@ -12,7 +12,7 @@ export default function AgentNode({ data }: any) {
       
       {/* 动态渲染输入端口 (Left) */}
       <div className="flex flex-col gap-2 relative">
-        {data.input_ports?.map((port: any, idx: number) => (
+        {data.input_ports?.map((port: any) => (
           <div key={port.id} className="relative flex items-center justify-start">
             <Handle
               type="target"
@@ -27,7 +27,7 @@ export default function AgentNode({ data }: any) {
 
       {/* 动态渲染输出端口 (Right) */}
       <div className="flex flex-col gap-2 relative mt-3">
-        {data.output_ports?.map((port: any, idx: number) => (
+        {data.output_ports?.map((port: any) => (
           <div key={port.id} className="relative flex items-center justify-end">
             <span className="text-xs font-mono bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-1 rounded">{port.id}</span>
             <Handle

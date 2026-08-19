@@ -1,55 +1,38 @@
 {
   "workflow_id": "通用对话助手",
+  "name": "通用对话助手",
+  "description": "处理无需调用专业工具的日常问答、解释、写作与推理请求。",
   "nodes": [
     {
       "id": "start_node",
       "type": "START",
-      "position": {
-        "x": 87.5,
-        "y": 252.5
-      },
+      "position": { "x": 80, "y": 260 },
       "output_ports": [
-        {
-          "id": "out_query"
-        }
+        { "id": "out_query", "description": "用户原始问题" }
       ]
     },
     {
-      "id": "custom_agent_node_0",
+      "id": "conversation_agent",
       "type": "AGENT",
-      "position": {
-        "x": 284.8974439287038,
-        "y": 217.79026658589913
-      },
-      "name": "新专用节点",
+      "position": { "x": 390, "y": 260 },
+      "name": "通用对话助手",
       "model_name": "deepseek-chat",
       "base_url": "https://api.deepseek.com",
-      "system_prompt": "你是一个任务分解与调度中枢（Task Planner & Router）。\n\n你的目标是：\n\n将用户输入的问题转化为结构化的任务执行计划。\n\n具体要求：\n\n问题理解：准确理解用户意图，识别是否为复杂任务；\n任务拆解：\n将问题拆分为最小可执行子任务（atomic tasks）；\n每个子任务应具备明确输入和输出；\n任务分类：\n标注每个子任务的类型（如：分析 / 编程 / 数学 / 数据处理 / 推理等）；\n标注难度（简单 / 中等 / 困难）；\n任务分发：\n为每个子任务选择最合适的助手（Agent）；\n给出分配理由（可选）；\n结构化输出：\n输出应为清晰结构（如 JSON 或列表），便于下游系统处理；\n\n注意：\n\n避免重复或冗余任务；\n尽量减少任务之间的依赖；\n优先保证任务可执行性。",
+      "system_prompt": "你是一个可靠、清晰、友好的通用对话助手。请准确理解用户意图，直接回答问题；复杂问题先在内部梳理，再给出结构清晰的结论。不要虚构事实，不确定时明确说明。除非用户要求，否则避免冗长回答。完成回答后，只将最终回复投递到【final_answer】端口。",
       "tools": [],
       "input_ports": [
-        {
-          "id": "in",
-          "name": "输入"
-        }
+        { "id": "user_input", "name": "用户输入" }
       ],
       "output_ports": [
-        {
-          "id": "coder",
-          "description": "输出"
-        }
+        { "id": "final_answer", "description": "面向用户的最终回复" }
       ]
     },
     {
       "id": "end_node",
       "type": "END",
-      "position": {
-        "x": 620.1570745786316,
-        "y": 291.36788308831825
-      },
+      "position": { "x": 750, "y": 260 },
       "input_ports": [
-        {
-          "id": "in_result"
-        }
+        { "id": "in_result", "name": "最终结果" }
       ]
     }
   ],
@@ -57,18 +40,12 @@
     {
       "source_node": "start_node",
       "source_port": "out_query",
-      "target_node": "custom_agent_node_0",
-      "target_port": "in"
-    },
-    {
-      "source_node": "start_node",
-      "source_port": "out_query",
-      "target_node": "custom_agent_node_0",
+      "target_node": "conversation_agent",
       "target_port": "user_input"
     },
     {
-      "source_node": "custom_agent_node_0",
-      "source_port": "coder",
+      "source_node": "conversation_agent",
+      "source_port": "final_answer",
       "target_node": "end_node",
       "target_port": "in_result"
     }

@@ -1,0 +1,123 @@
+{
+  "workflow_id": "software_development_pipeline",
+  "name": "软件开发流水线",
+  "description": "从需求澄清开始，完成实现、测试和独立审查，输出可交付的软件变更报告。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 60, "y": 300 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户的软件开发需求" }
+      ]
+    },
+    {
+      "id": "requirements_analyst",
+      "type": "AGENT",
+      "name": "需求分析师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是资深软件需求分析师。理解用户目标并检查当前项目背景，将需求整理为可实现、可测试的规格，明确范围、验收标准、边界条件、兼容性要求和非目标。不要编写实现代码。你必须把同一份完整规格分别投递到【implementation_spec】和【review_spec】，前者供开发使用，后者供最终独立审查使用。",
+      "tools": [
+        "get_project_structure",
+        "search_project",
+        "read_local_file"
+      ],
+      "input_ports": [
+        { "id": "user_request", "name": "用户需求" }
+      ],
+      "output_ports": [
+        { "id": "implementation_spec", "description": "供开发节点执行的完整规格" },
+        { "id": "review_spec", "description": "供审查节点核对的验收规格" }
+      ],
+      "position": { "x": 350, "y": 300 }
+    },
+    {
+      "id": "implementation_engineer",
+      "type": "AGENT",
+      "name": "实现工程师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是谨慎的软件实现工程师。依据规格检查现有代码，实施最小且完整的变更，避免修改无关文件。完成后进行必要的本地自检，并输出变更文件、关键设计、运行方式和已知限制。你必须将完整实现摘要分别投递到【implementation_for_test】和【implementation_for_review】。",
+      "tools": [
+        "read_local_file",
+        "search_code",
+        "search_project",
+        "git_safe_modify",
+        "execute_python_code",
+        "execute_javascript_code",
+        "execute_bash_script"
+      ],
+      "input_ports": [
+        { "id": "implementation_spec", "name": "实现规格" }
+      ],
+      "output_ports": [
+        { "id": "implementation_for_test", "description": "供测试节点验证的实现摘要" },
+        { "id": "implementation_for_review", "description": "供审查节点检查的实现摘要" }
+      ],
+      "position": { "x": 700, "y": 180 }
+    },
+    {
+      "id": "test_engineer",
+      "type": "AGENT",
+      "name": "测试工程师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是独立测试工程师。根据收到的实现摘要定位变更并执行与风险相称的测试，覆盖正常路径、边界条件和失败路径。不得伪造测试结果。输出实际执行的命令、通过项、失败项、未覆盖风险和复现信息，只投递到【test_report】。",
+      "tools": [
+        "read_local_file",
+        "search_code",
+        "execute_python_code",
+        "execute_javascript_code",
+        "execute_bash_script"
+      ],
+      "input_ports": [
+        { "id": "implementation_for_test", "name": "待测实现" }
+      ],
+      "output_ports": [
+        { "id": "test_report", "description": "真实测试证据和风险报告" }
+      ],
+      "position": { "x": 1030, "y": 180 }
+    },
+    {
+      "id": "code_reviewer",
+      "type": "AGENT",
+      "name": "代码审查员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是最终独立审查员。综合验收规格、实现摘要和测试报告，并在必要时读取实际代码。检查正确性、安全性、可维护性、兼容性、错误处理和测试充分性。输出明确结论：通过、附条件通过或不通过；列出阻塞问题、非阻塞建议和交付说明。只投递到【final_review】。这是单向流水线，不要求返回上游重做。",
+      "tools": [
+        "read_local_file",
+        "search_code",
+        "search_project",
+        "get_project_structure"
+      ],
+      "input_ports": [
+        { "id": "review_spec", "name": "验收规格" },
+        { "id": "implementation_for_review", "name": "实现摘要" },
+        { "id": "test_report", "name": "测试报告" }
+      ],
+      "output_ports": [
+        { "id": "final_review", "description": "最终软件交付审查报告" }
+      ],
+      "position": { "x": 1370, "y": 300 }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1720, "y": 300 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
+  "connections": [
+    { "source_node": "start_node", "source_port": "out_query", "target_node": "requirements_analyst", "target_port": "user_request" },
+    { "source_node": "requirements_analyst", "source_port": "implementation_spec", "target_node": "implementation_engineer", "target_port": "implementation_spec" },
+    { "source_node": "requirements_analyst", "source_port": "review_spec", "target_node": "code_reviewer", "target_port": "review_spec" },
+    { "source_node": "implementation_engineer", "source_port": "implementation_for_test", "target_node": "test_engineer", "target_port": "implementation_for_test" },
+    { "source_node": "implementation_engineer", "source_port": "implementation_for_review", "target_node": "code_reviewer", "target_port": "implementation_for_review" },
+    { "source_node": "test_engineer", "source_port": "test_report", "target_node": "code_reviewer", "target_port": "test_report" },
+    { "source_node": "code_reviewer", "source_port": "final_review", "target_node": "end_node", "target_port": "in_result" }
+  ]
+}

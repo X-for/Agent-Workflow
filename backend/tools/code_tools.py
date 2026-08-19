@@ -1,23 +1,35 @@
 from .utils import *
 import subprocess
-import sys
 import os
+import tempfile
+import shutil
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # 从环境变量加载真实的工作区目录，如果没有则使用默认路径
-WORKSPACE_BASE = os.environ.get("WORKSPACE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../workspaces")))
+WORKSPACE_BASE = os.path.abspath(os.environ.get(
+    "WORKSPACE_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "..", "workspaces"),
+))
 
 # 确保工作区目录存在
 if not os.path.exists(WORKSPACE_BASE):
     os.makedirs(WORKSPACE_BASE, exist_ok=True)
 
+
+def _create_temp_script(content: str, suffix: str) -> str:
+    descriptor, temp_path = tempfile.mkstemp(prefix="agent-", suffix=suffix, dir=WORKSPACE_BASE)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as file_obj:
+        file_obj.write(content)
+    return temp_path
+
 @tool
 @log
 def execute_python_code(code: str) -> str:
     """
-    专供代码专家 Agent 使用的工具。在完全隔离的子进程环境中执行 Python 代码。
+    专供代码专家 Agent 使用的工具。在独立临时文件和受控工作目录中执行 Python 代码。
     输入必须是合法的 Python 代码字符串。
     
     【极其重要】：如果你的代码需要依赖第三方库（比如 requests, pandas），
@@ -34,13 +46,14 @@ def execute_python_code(code: str) -> str:
     这样隔离环境就会自动为你安装它们！
     会返回标准输出 (stdout) 或完整的错误跟踪日志 (stderr)。
     """
-    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.py")
+    temp_script = None
     try:
-        with open(temp_script, "w", encoding="utf-8") as f:
-            f.write(code)
+        temp_script = _create_temp_script(code, ".py")
             
+        uv_executable = shutil.which("uv")
+        command = [uv_executable, "run", "--isolated", temp_script] if uv_executable else [sys.executable, temp_script]
         result = subprocess.run(
-            ["uv", "run", "--isolated", temp_script],
+            command,
             cwd=WORKSPACE_BASE,
             capture_output=True,
             text=True,
@@ -48,7 +61,8 @@ def execute_python_code(code: str) -> str:
         )
         
         if result.returncode == 0:
-            return f"代码在沙盒环境执行成功。\n标准输出:\n{result.stdout}"
+            runtime_note = "uv 隔离环境" if uv_executable else "当前 Python 环境"
+            return f"代码在{runtime_note}执行成功。\n标准输出:\n{result.stdout}"
         else:
             return f"代码执行报错 (退出码 {result.returncode})。\n错误日志:\n{result.stderr}"
             
@@ -57,7 +71,7 @@ def execute_python_code(code: str) -> str:
     except Exception as e:
         return f"沙盒环境发生未知错误: {str(e)}"
     finally:
-        if os.path.exists(temp_script):
+        if temp_script and os.path.exists(temp_script):
             os.remove(temp_script)
 
 @tool
@@ -69,10 +83,9 @@ def execute_javascript_code(code: str) -> str:
     返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
     注意：系统需要预先安装好 Node.js 环境。
     """
-    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.js")
+    temp_script = None
     try:
-        with open(temp_script, "w", encoding="utf-8") as f:
-            f.write(code)
+        temp_script = _create_temp_script(code, ".js")
             
         result = subprocess.run(
             ["node", temp_script],
@@ -94,7 +107,7 @@ def execute_javascript_code(code: str) -> str:
     except Exception as e:
         return f"JS执行沙盒发生未知错误: {str(e)}"
     finally:
-        if os.path.exists(temp_script):
+        if temp_script and os.path.exists(temp_script):
             os.remove(temp_script)
 
 @tool
@@ -105,10 +118,9 @@ def execute_bash_script(script: str) -> str:
     输入必须是合法的 Bash 脚本内容。
     返回标准输出 (stdout) 或错误跟踪日志 (stderr)。
     """
-    temp_script = os.path.join(WORKSPACE_BASE, "sandbox_temp.sh")
+    temp_script = None
     try:
-        with open(temp_script, "w", encoding="utf-8") as f:
-            f.write(script)
+        temp_script = _create_temp_script(script, ".sh")
             
         # 根据系统平台选择执行方式
         cmd = ["bash", temp_script] if os.name != "nt" else ["bash.exe", temp_script]
@@ -133,100 +145,89 @@ def execute_bash_script(script: str) -> str:
     except Exception as e:
         return f"Bash执行沙盒发生未知错误: {str(e)}"
     finally:
-        if os.path.exists(temp_script):
+        if temp_script and os.path.exists(temp_script):
             os.remove(temp_script)
 
 @tool
 @log
 def git_safe_modify(absolute_file_path: str, new_content: str, branch_name: str, commit_message: str) -> str:
     """
-    【安全操作】：将 AI 生成的代码写入文件。自动进行 Git 沙盒隔离，绝对精准锚定项目根目录。
+    在独立 Git worktree 中写入并提交单个文件，不切换或提交用户当前工作区。
     """
-    file_dir = os.path.dirname(absolute_file_path)
-
-    if not os.path.exists(file_dir):
-        return f"❌ 拒绝操作: 父级目录 {file_dir} 不存在，请先确保目录结构正确。"
-
-    if not os.path.exists(absolute_file_path):
-        print(f"💡 [系统提示] 文件不存在，准备在路径下新建: {absolute_file_path}")
-
-    # === 【终极路径定位大法】完全摆脱环境变量依赖 ===
-    curr_dir = file_dir
-    project_root = None
-    
-    # 1. 优先往上寻找已经存在的 .git 根目录
-    while curr_dir and curr_dir != "/":
-        if os.path.exists(os.path.join(curr_dir, ".git")):
-            project_root = curr_dir
-            break
-        curr_dir = os.path.dirname(curr_dir)
-    
-    # 2. 如果没找到 .git（说明还没建仓），就根据路径特征暴力截取
-    if not project_root:
-        parts = absolute_file_path.split(os.sep)
-        # 如果路径里有 Workspace，就取 Workspace 的下一级目录（如 SEPK）作为根
-        if "Workspace" in parts:
-            ws_idx = parts.index("Workspace")
-            if len(parts) > ws_idx + 1:
-                project_root = os.sep.join(parts[:ws_idx + 2])
-        
-        # 兜底保障
-        if not project_root:
-            project_root = file_dir
-
-    def run_cmd(cmd: str):
-        # 统一在精确计算出的 project_root 下执行所有 Git 命令
-        result = subprocess.run(cmd, shell=True, cwd=project_root, capture_output=True, text=True)
-        return result.returncode, result.stdout, result.stderr
-
-    # 1. 检查是否在 Git 仓库内
-    code, _, _ = run_cmd("git rev-parse --is-inside-work-tree")
-    if code != 0:
-        run_cmd("git init")
-        run_cmd("git add .")
-        run_cmd('git commit -m "chore: 系统自动初始化的本地代码基线"')
-        print(f"💡 [系统提示] 已自动为项目 {os.path.basename(project_root)} 建立 Git 仓库。")
-
-    # 2. 检查工作区是否有未提交修改
-    code, out, _ = run_cmd("git status --porcelain")
-    if out.strip():
-        run_cmd('git add .')
-        run_cmd('git commit -m "chore: 自动暂存用户在 AI 动手前的未提交修改"')
-
-    # 3. 记录当前分支
-    _, current_branch, _ = run_cmd("git branch --show-current")
-    current_branch = current_branch.strip() or "master"
-
-    # 4. 创建并切换新分支
-    code, out, err = run_cmd(f"git checkout -b {branch_name}")
-    if code != 0:
-        run_cmd(f"git checkout {branch_name}")
-
-    # 5. 【执行写入】
+    target_path = os.path.abspath(absolute_file_path)
+    allowed_root = os.path.abspath(os.environ.get("PROJECTS_DIR", WORKSPACE_BASE))
     try:
-        with open(absolute_file_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
-    except Exception as e:
-        run_cmd(f"git checkout {current_branch}") 
-        return f"❌ 代码写入本地文件失败: {e}"
+        if os.path.commonpath([allowed_root, target_path]) != allowed_root:
+            return "拒绝操作: 目标文件越出允许的项目目录。"
+    except ValueError:
+        return "拒绝操作: 目标文件越出允许的项目目录。"
 
-    # 6. 【核心修复】：不再使用容易出错的绝对路径 add，直接用全局 add 捕捉新文件
-    run_cmd("git add .")
-    
-    # 提前查验是否有改动被识别到，防止空 Commit 报错
-    code, status_out, _ = run_cmd("git status --porcelain")
-    if not status_out.strip():
-        run_cmd(f"git checkout {current_branch}") 
-        return f"❌ Commit 失败: 文件 {os.path.basename(absolute_file_path)} 已写入磁盘，但 Git 未检测到任何变化。可能是新代码与原内容完全相同，或文件被 .gitignore 忽略。"
+    file_dir = os.path.dirname(target_path)
+    if not os.path.isdir(file_dir):
+        return f"拒绝操作: 父级目录 {file_dir} 不存在。"
+    if not branch_name or not commit_message.strip():
+        return "分支名和提交说明不能为空。"
 
-    code, out, err = run_cmd(f'git commit -m "AI Auto-Commit: {commit_message}"')
-    if code != 0:
-        run_cmd(f"git checkout {current_branch}") 
-        return f"❌ Commit 执行失败: {out} {err}"
+    def run_cmd(args: list[str], cwd: str):
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
 
-    # 7. 切回主分支
-    run_cmd(f"git checkout {current_branch}")
+    root_result = run_cmd(["git", "rev-parse", "--show-toplevel"], file_dir)
+    if root_result.returncode != 0:
+        return "目标文件不在已有的 Git 仓库中；工具不会自动初始化或提交整个目录。"
+    project_root = os.path.abspath(root_result.stdout.strip())
+    try:
+        relative_path = os.path.relpath(target_path, project_root)
+        if relative_path == ".." or relative_path.startswith(f"..{os.sep}"):
+            return "目标文件不属于检测到的 Git 仓库。"
+    except ValueError:
+        return "目标文件不属于检测到的 Git 仓库。"
 
-    return (f"✅ 代码写入并隔离成功！\n"
-            f"提示：已将修改存入分支 `{branch_name}`。\n"
-            f"您可以输入 `git diff {current_branch} {branch_name}` 查看改动。")
+    branch_check = run_cmd(["git", "check-ref-format", "--branch", branch_name], project_root)
+    if branch_check.returncode != 0:
+        return f"分支名无效: {branch_name}"
+    branch_exists = run_cmd(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+        project_root,
+    )
+    if branch_exists.returncode == 0:
+        return f"分支已存在: {branch_name}，请使用新的分支名。"
+
+    with tempfile.TemporaryDirectory(prefix="agent-git-") as worktree_dir:
+        added = False
+        try:
+            add_result = run_cmd(
+                ["git", "worktree", "add", "-b", branch_name, worktree_dir, "HEAD"],
+                project_root,
+            )
+            if add_result.returncode != 0:
+                return f"创建隔离 worktree 失败: {add_result.stderr.strip()}"
+            added = True
+
+            worktree_target = os.path.join(worktree_dir, relative_path)
+            os.makedirs(os.path.dirname(worktree_target), exist_ok=True)
+            with open(worktree_target, "w", encoding="utf-8") as file_obj:
+                file_obj.write(new_content)
+
+            add_file = run_cmd(["git", "add", "--", relative_path], worktree_dir)
+            if add_file.returncode != 0:
+                return f"暂存目标文件失败: {add_file.stderr.strip()}"
+            diff_check = run_cmd(["git", "diff", "--cached", "--quiet", "--", relative_path], worktree_dir)
+            if diff_check.returncode == 0:
+                return "新内容与仓库中的原内容相同，没有可提交的修改。"
+
+            commit = run_cmd(
+                ["git", "commit", "-m", f"AI Auto-Commit: {commit_message.strip()}"],
+                worktree_dir,
+            )
+            if commit.returncode != 0:
+                return f"Commit 执行失败: {(commit.stdout + commit.stderr).strip()}"
+        except Exception as exc:
+            return f"隔离写入失败: {exc}"
+        finally:
+            if added:
+                run_cmd(["git", "worktree", "remove", "--force", worktree_dir], project_root)
+
+    return (
+        "代码已在隔离 worktree 中提交，当前工作区未被切换或暂存。\n"
+        f"分支: `{branch_name}`"
+    )

@@ -1,6 +1,29 @@
 from .utils import *
 from ddgs import DDGS 
 from langchain_core.tools import tool
+import ipaddress
+import socket
+from urllib.parse import urljoin, urlparse
+
+
+def _validate_public_http_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("仅允许访问有效的 HTTP/HTTPS URL")
+    if parsed.username or parsed.password:
+        raise ValueError("URL 不允许包含用户名或密码")
+    try:
+        addresses = {
+            item[4][0]
+            for item in socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror as exc:
+        raise ValueError("URL 域名无法解析") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address)
+        if not ip.is_global:
+            raise ValueError("拒绝访问本机、内网或保留地址")
+    return url
 
 @tool
 @log
@@ -53,10 +76,50 @@ def get_content_from_url(url: str) -> str:
             'Sec-Fetch-Site': 'none',
             'Cache-Control': 'max-age=0',
         }
-        response = requests.get(url, timeout=10, headers=headers)
-        response.raise_for_status()  # 如果请求失败会抛出异常
+        session = requests.Session()
+        session.trust_env = False
+        current_url = url
+        response = None
+        for _ in range(6):
+            _validate_public_http_url(current_url)
+            response = session.get(
+                current_url,
+                timeout=10,
+                headers=headers,
+                allow_redirects=False,
+                stream=True,
+            )
+            if response.is_redirect or response.is_permanent_redirect:
+                location = response.headers.get("location")
+                response.close()
+                if not location:
+                    raise ValueError("重定向响应缺少 Location")
+                current_url = urljoin(current_url, location)
+                continue
+            break
+        else:
+            raise ValueError("网页重定向次数过多")
+
+        response.raise_for_status()
+        content_type = response.headers.get("content-type", "").lower()
+        if content_type and not any(kind in content_type for kind in ("text/", "html", "xml", "json")):
+            raise ValueError(f"不支持的网页内容类型: {content_type}")
+        chunks = []
+        total_size = 0
+        encoding = response.encoding or "utf-8"
+        try:
+            for chunk in response.iter_content(chunk_size=65536):
+                if not chunk:
+                    continue
+                total_size += len(chunk)
+                if total_size > 2 * 1024 * 1024:
+                    raise ValueError("网页响应超过 2 MiB 限制")
+                chunks.append(chunk)
+        finally:
+            response.close()
+        html = b"".join(chunks).decode(encoding, errors="replace")
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        soup = BeautifulSoup(html, 'html.parser')
         
         # 移除不需要的标签（脚本、样式等）
         for script in soup(["script", "style", "nav", "footer", "iframe"]):

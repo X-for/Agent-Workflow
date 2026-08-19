@@ -1,113 +1,223 @@
-import os
+import asyncio
 import json
-from datetime import datetime
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Optional
-from dotenv import load_dotenv
+import mimetypes
+import os
+import re
+import tempfile
+from pathlib import Path
+from uuid import uuid4
 
-# 加载环境变量
+from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException
+
+
 load_dotenv()
 
-from Graph import GraphEngine
+# Windows may map .js to text/plain in the registry. ES modules are rejected by
+# browsers unless they are served with a JavaScript MIME type.
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/javascript", ".mjs")
+
+from Graph import GraphEngine, WorkflowValidationError, validate_workflow_schema
 import tools as backend_tools
 
-# 基础路径配置
-BASE_DIR = os.environ.get("BASE_DIR")
-FRONTEND_DIR = os.environ.get("FRONTEND_DIR")
-WORKFLOWS_DIR = os.environ.get("WORKFLOW_DIR")
-NODES_DIR =os.environ.get("NODES_DIR")
-SESSIONS_DIR = os.environ.get("SESSIONS_DIR")
 
-os.makedirs(WORKFLOWS_DIR, exist_ok=True)
-os.makedirs(NODES_DIR, exist_ok=True)
-os.makedirs(SESSIONS_DIR, exist_ok=True)
+PROJECT_ROOT = Path(os.environ.get("BASE_DIR", Path(__file__).resolve().parent.parent)).resolve()
+FRONTEND_DIR = Path(os.environ.get("FRONTEND_DIR", PROJECT_ROOT / "frontend" / "dist")).resolve()
+WORKFLOWS_DIR = Path(os.environ.get("WORKFLOW_DIR", PROJECT_ROOT / "workflows")).resolve()
+NODES_DIR = Path(os.environ.get("NODES_DIR", PROJECT_ROOT / "nodes")).resolve()
+SESSIONS_DIR = Path(os.environ.get("SESSIONS_DIR", PROJECT_ROOT / "sessions")).resolve()
 
-# 初始化 FastAPI
+for directory in (WORKFLOWS_DIR, NODES_DIR, SESSIONS_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
+
 app = FastAPI(title="Agent Workflow API")
-
-# 允许跨域请求
+cors_origins = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ORIGINS", "http://127.0.0.1:5173,http://localhost:5173"
+    ).split(",")
+    if origin.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 注册大模型可用工具
+
+INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+
+
+def normalize_json_filename(value: str, label: str = "文件名") -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label}不能为空")
+    filename = value.strip()
+    if INVALID_FILENAME.search(filename) or filename in {".", ".."}:
+        raise ValueError(f"{label}包含非法字符")
+    if filename.endswith((" ", ".")):
+        raise ValueError(f"{label}不能以空格或句点结尾")
+    if not filename.lower().endswith(".json"):
+        filename += ".json"
+    return filename
+
+
+def safe_json_path(directory: Path, value: str, label: str = "文件名") -> Path:
+    filename = normalize_json_filename(value, label)
+    target = (directory / filename).resolve()
+    try:
+        target.relative_to(directory.resolve())
+    except ValueError as exc:
+        raise ValueError(f"{label}越出允许目录") from exc
+    return target
+
+
 def get_tool_registry():
-    """
-    动态从 backend/tools 目录获取所有被 @tool 装饰的工具
-    """
     registry = {}
-    # 遍历 backend_tools 模块中的所有属性
     for attr_name in dir(backend_tools):
         attr = getattr(backend_tools, attr_name)
-        # 检查是否是 LangChain 的 BaseTool 实例 (由 @tool 装饰器生成)
         if hasattr(attr, "name") and hasattr(attr, "description"):
             registry[attr.name] = attr
     return registry
 
+
 tool_registry = get_tool_registry()
+engine_cache: dict[str, tuple[int, int, GraphEngine]] = {}
 
-# 缓存引擎
-engine_cache = {}
 
-def get_engine(workflow_id: str):
-    if workflow_id in engine_cache:
-        return engine_cache[workflow_id]
-        
-    file_path = os.path.join(WORKFLOWS_DIR, f"{workflow_id}")
-    if not file_path.endswith('.json'):
-        file_path += '.json'
-        
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"Workflow {workflow_id} not found")
-        
-    engine = GraphEngine(file_path, tool_registry)
-    engine_cache[workflow_id] = engine
+def get_engine(workflow_id: str) -> GraphEngine:
+    filename = normalize_json_filename(workflow_id, "工作流 ID")
+    file_path = safe_json_path(WORKFLOWS_DIR, filename, "工作流 ID")
+    if not file_path.exists():
+        raise FileNotFoundError(f"Workflow {filename} not found")
+
+    stat = file_path.stat()
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cached = engine_cache.get(filename)
+    if cached and cached[:2] == signature:
+        return cached[2]
+
+    engine = GraphEngine(str(file_path), tool_registry)
+    engine_cache[filename] = (signature[0], signature[1], engine)
     return engine
 
-# 请求体模型
+
+def normalize_messages(messages: list) -> list[dict]:
+    normalized = []
+    for message in messages if isinstance(messages, list) else []:
+        if not isinstance(message, dict) or message.get("role") not in {"user", "assistant"}:
+            continue
+        content = message.get("content", "")
+        if not isinstance(content, str):
+            content = json.dumps(content, ensure_ascii=False)
+        normalized.append({
+            "id": str(message.get("id") or uuid4().hex),
+            "role": message["role"],
+            "content": content,
+        })
+    return normalized
+
+
+chat_memories: dict[str, list[dict]] = {}
+session_locks: dict[str, asyncio.Lock] = {}
+active_chat_tasks: dict[str, asyncio.Task] = {}
+
+
+def get_session_lock(session_id: str) -> asyncio.Lock:
+    lock = session_locks.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        session_locks[session_id] = lock
+    return lock
+
+
+def load_session_memory(session_id: str) -> list[dict]:
+    if session_id in chat_memories:
+        return [dict(message) for message in chat_memories[session_id]]
+
+    file_path = safe_json_path(SESSIONS_DIR, session_id, "会话 ID")
+    if file_path.exists():
+        try:
+            with file_path.open("r", encoding="utf-8") as file_obj:
+                messages = normalize_messages(json.load(file_obj))
+                chat_memories[session_id] = messages
+                return [dict(message) for message in messages]
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"加载 Session {session_id} 失败: {exc}")
+
+    chat_memories[session_id] = []
+    return []
+
+
+def save_session_memory(session_id: str, messages: list[dict]) -> None:
+    normalized = normalize_messages(messages)
+    file_path = safe_json_path(SESSIONS_DIR, session_id, "会话 ID")
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=SESSIONS_DIR,
+            prefix=f".{file_path.stem}-",
+            suffix=".tmp",
+            delete=False,
+        ) as file_obj:
+            temporary_path = Path(file_obj.name)
+            json.dump(normalized, file_obj, ensure_ascii=False, indent=2)
+        os.replace(temporary_path, file_path)
+        chat_memories[session_id] = normalized
+    finally:
+        if temporary_path and temporary_path.exists():
+            temporary_path.unlink(missing_ok=True)
+
+
+def _resolve_node_config(node: dict) -> dict:
+    ref = node.get("ref")
+    if not ref:
+        return node
+    ref_path = safe_json_path(NODES_DIR, ref, "节点模板")
+    if not ref_path.exists():
+        raise WorkflowValidationError(f"节点模板不存在: {ref}")
+    try:
+        with ref_path.open("r", encoding="utf-8") as file_obj:
+            template = json.load(file_obj)
+    except json.JSONDecodeError as exc:
+        raise WorkflowValidationError(f"节点模板不是有效 JSON: {ref}") from exc
+    return {**template, **node}
+
+
+def validate_workflow_ports(workflow: dict) -> None:
+    resolved_nodes = {node["id"]: _resolve_node_config(node) for node in workflow["nodes"]}
+    for connection in workflow["connections"]:
+        source = resolved_nodes[connection["source_node"]]
+        target = resolved_nodes[connection["target_node"]]
+        source_ports = {port.get("id") for port in source.get("output_ports", [])}
+        target_ports = {port.get("id") for port in target.get("input_ports", [])}
+        if connection["source_port"] not in source_ports:
+            raise WorkflowValidationError(
+                f"节点 {source['id']} 不存在输出端口 {connection['source_port']}"
+            )
+        if connection["target_port"] not in target_ports:
+            raise WorkflowValidationError(
+                f"节点 {target['id']} 不存在输入端口 {connection['target_port']}"
+            )
+
+
 class ChatRequest(BaseModel):
     query: str
     workflow_id: str = "test.json"
     session_id: str = "default"
+    request_id: str | None = None
 
-# 内存存储对话历史 (后续可持久化到数据库)
-# 结构: { session_id: [ {role: "user", content: "..."}, ... ] }
-chat_memories = {}
-
-def load_session_memory(session_id: str):
-    """从文件加载 Session 记忆"""
-    if session_id in chat_memories:
-        return chat_memories[session_id]
-    
-    file_path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
-    if os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                chat_memories[session_id] = json.load(f)
-                return chat_memories[session_id]
-        except Exception as e:
-            print(f"加载 Session {session_id} 失败: {e}")
-    
-    chat_memories[session_id] = []
-    return []
-
-def save_session_memory(session_id: str, messages: list):
-    """保存 Session 记忆到文件"""
-    chat_memories[session_id] = messages
-    file_path = os.path.join(SESSIONS_DIR, f"{session_id}.json")
-    try:
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(messages, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"保存 Session {session_id} 失败: {e}")
 
 class WorkflowCreateRequest(BaseModel):
     filename: str
@@ -115,62 +225,6 @@ class WorkflowCreateRequest(BaseModel):
     nodes: list
     connections: list
 
-@app.get("/api/nodes")
-async def list_available_nodes():
-    """获取所有可用的通用节点（从 nodes 目录）"""
-    nodes = []
-    
-    # 增加一个专用的“空白节点”以支持画布上直接配置
-    nodes.append({
-        "id": "custom_agent",
-        "name": "专用节点 (Custom)",
-        "type": "CUSTOM_AGENT",
-        "description": "拖拽后可在右侧面板直接编写其私有配置",
-        "input_ports": [{"id": "in", "name": "输入"}],
-        "output_ports": [{"id": "out", "name": "输出"}]
-    })
-    
-    # 内置基础节点
-    nodes.extend([
-        {
-            "id": "builtin_start",
-            "name": "开始节点 (START)",
-            "type": "START",
-            "description": "工作流入口，接收用户输入",
-            "output_ports": [{"id": "out_query", "name": "查询输出"}],
-            "input_ports": []
-        },
-        {
-            "id": "builtin_end",
-            "name": "结束节点 (END)",
-            "type": "END",
-            "description": "工作流出口，返回最终结果",
-            "input_ports": [{"id": "in_result", "name": "最终结果"}],
-            "output_ports": []
-        }
-    ])
-    
-    # 扫描 nodes 目录下的专用节点
-    if os.path.exists(NODES_DIR):
-        for file in os.listdir(NODES_DIR):
-            if file.endswith('.json'):
-                path = os.path.join(NODES_DIR, file)
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        nodes.append({
-                            "id": file.replace('.json', ''),
-                            "name": data.get("name", file),
-                            "type": "AGENT",
-                            "ref": file,
-                            "description": data.get("system_prompt", "")[:50] + "...",
-                            "input_ports": data.get("input_ports", []),
-                            "output_ports": data.get("output_ports", [])
-                        })
-                except Exception as e:
-                    print(f"Error loading node {file}: {e}")
-                    
-    return {"status": "success", "nodes": nodes}
 
 class NodeCreateRequest(BaseModel):
     filename: str
@@ -179,217 +233,286 @@ class NodeCreateRequest(BaseModel):
     model_name: str = "deepseek-chat"
     base_url: str = "https://api.deepseek.com"
     system_prompt: str = ""
-    tools: list = []
-    input_ports: list = []
-    output_ports: list = []
+    tools: list = Field(default_factory=list)
+    input_ports: list = Field(default_factory=list)
+    output_ports: list = Field(default_factory=list)
+
+
+@app.get("/api/nodes")
+async def list_available_nodes():
+    nodes = [
+        {
+            "id": "custom_agent",
+            "name": "专用节点 (Custom)",
+            "type": "CUSTOM_AGENT",
+            "description": "拖拽后可在右侧面板直接编写其私有配置",
+            "input_ports": [{"id": "in", "name": "输入"}],
+            "output_ports": [{"id": "out", "name": "输出"}],
+        },
+        {
+            "id": "builtin_start",
+            "name": "开始节点 (START)",
+            "type": "START",
+            "description": "工作流入口，接收用户输入",
+            "output_ports": [{"id": "out_query", "name": "查询输出"}],
+            "input_ports": [],
+        },
+        {
+            "id": "builtin_end",
+            "name": "结束节点 (END)",
+            "type": "END",
+            "description": "工作流出口，返回最终结果",
+            "input_ports": [{"id": "in_result", "name": "最终结果"}],
+            "output_ports": [],
+        },
+    ]
+    for file_path in sorted(NODES_DIR.glob("*.json")):
+        try:
+            with file_path.open("r", encoding="utf-8") as file_obj:
+                data = json.load(file_obj)
+            nodes.append({
+                "id": file_path.stem,
+                "name": data.get("name", file_path.name),
+                "type": "AGENT",
+                "ref": file_path.name,
+                "description": data.get("system_prompt", "")[:50] + "...",
+                "input_ports": data.get("input_ports", []),
+                "output_ports": data.get("output_ports", []),
+            })
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Error loading node {file_path.name}: {exc}")
+    return {"status": "success", "nodes": nodes}
+
 
 @app.post("/api/nodes")
 async def create_node(req: NodeCreateRequest):
-    """保存一个新的通用节点配置到 nodes 目录"""
-    file_path = os.path.join(NODES_DIR, req.filename)
-    if not file_path.endswith('.json'):
-        file_path += '.json'
-        
-    data = {
-        "name": req.name,
-        "type": req.type,
-        "model_name": req.model_name,
-        "base_url": req.base_url,
-        "system_prompt": req.system_prompt,
-        "tools": req.tools,
-        "input_ports": req.input_ports,
-        "output_ports": req.output_ports
-    }
-    
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
-        
-    return {"status": "success", "message": "Node created successfully"}
+    try:
+        file_path = safe_json_path(NODES_DIR, req.filename, "节点文件名")
+        data = {
+            "name": req.name,
+            "type": req.type,
+            "model_name": req.model_name,
+            "base_url": req.base_url,
+            "system_prompt": req.system_prompt,
+            "tools": req.tools,
+            "input_ports": req.input_ports,
+            "output_ports": req.output_ports,
+        }
+        with file_path.open("w", encoding="utf-8") as file_obj:
+            json.dump(data, file_obj, ensure_ascii=False, indent=4)
+        return {"status": "success", "message": "Node created successfully"}
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
 
 @app.get("/api/tools")
 async def list_available_tools():
-    """获取所有已注册的工具列表"""
     return {"status": "success", "tools": list(tool_registry.keys())}
+
 
 @app.get("/api/workflows")
 async def list_workflows():
     workflows = []
-    for file in os.listdir(WORKFLOWS_DIR):
-        if file.endswith('.json'):
-            path = os.path.join(WORKFLOWS_DIR, file)
-            try:
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    workflows.append({
-                        "id": file,
-                        "name": data.get("workflow_id", file),
-                        "nodesCount": len(data.get("nodes", [])),
-                        "description": f"自定义工作流 {file}"
-                    })
-            except Exception as e:
-                print(f"Error loading {file}: {e}")
+    for file_path in sorted(WORKFLOWS_DIR.glob("*.json")):
+        try:
+            with file_path.open("r", encoding="utf-8") as file_obj:
+                data = json.load(file_obj)
+            workflows.append({
+                "id": file_path.name,
+                "name": data.get("workflow_id", file_path.name),
+                "nodesCount": len(data.get("nodes", [])),
+                "description": f"自定义工作流 {file_path.name}",
+            })
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Error loading {file_path.name}: {exc}")
     return {"status": "success", "workflows": workflows}
+
 
 @app.get("/api/workflows/{workflow_id}")
 async def get_workflow(workflow_id: str):
-    """获取单个工作流的详细配置"""
-    # 移除可能存在的 .json 后缀，统一处理
-    clean_id = workflow_id
-    if clean_id.endswith('.json'):
-        clean_id = clean_id[:-5]
-        
-    file_path = os.path.join(WORKFLOWS_DIR, f"{clean_id}.json")
-    
-    print(f"DEBUG: Loading workflow from {file_path}")
-        
-    if not os.path.exists(file_path):
-        return JSONResponse(status_code=404, content={"status": "error", "message": f"Workflow {clean_id} not found at {file_path}"})
-        
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            return {"status": "success", "workflow": data}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
+        file_path = safe_json_path(WORKFLOWS_DIR, workflow_id, "工作流 ID")
+        if not file_path.exists():
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "Workflow not found"},
+            )
+        with file_path.open("r", encoding="utf-8") as file_obj:
+            return {"status": "success", "workflow": json.load(file_obj)}
+    except (ValueError, json.JSONDecodeError) as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
 
 @app.delete("/api/workflows/{workflow_id}")
 async def delete_workflow(workflow_id: str):
-    """删除工作流"""
-    clean_id = workflow_id
-    if clean_id.endswith('.json'):
-        clean_id = clean_id[:-5]
-    file_path = os.path.join(WORKFLOWS_DIR, f"{clean_id}.json")
-    if os.path.exists(file_path):
-        os.remove(file_path)
-        if f"{clean_id}.json" in engine_cache:
-            del engine_cache[f"{clean_id}.json"]
+    try:
+        filename = normalize_json_filename(workflow_id, "工作流 ID")
+        file_path = safe_json_path(WORKFLOWS_DIR, filename, "工作流 ID")
+        if not file_path.exists():
+            return JSONResponse(
+                status_code=404,
+                content={"status": "error", "message": "Workflow not found"},
+            )
+        file_path.unlink()
+        engine_cache.pop(filename, None)
         return {"status": "success", "message": "Workflow deleted"}
-    return JSONResponse(status_code=404, content={"status": "error", "message": "Workflow not found"})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
 
 @app.post("/api/workflows")
 async def create_workflow(req: WorkflowCreateRequest):
-    file_path = os.path.join(WORKFLOWS_DIR, req.filename)
-    if not file_path.endswith('.json'):
-        file_path += '.json'
-        
-    data = {
-        "workflow_id": req.workflow_id,
-        "nodes": req.nodes,
-        "connections": req.connections
-    }
-    
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-        
-    # Invalidate cache if exists
-    if req.filename in engine_cache:
-        del engine_cache[req.filename]
-        
-    return {"status": "success", "message": "Workflow created successfully"}
+    try:
+        filename = normalize_json_filename(req.filename, "工作流文件名")
+        file_path = safe_json_path(WORKFLOWS_DIR, filename, "工作流文件名")
+        data = {
+            "workflow_id": req.workflow_id,
+            "nodes": req.nodes,
+            "connections": req.connections,
+        }
+        validate_workflow_schema(data)
+        validate_workflow_ports(data)
+        with file_path.open("w", encoding="utf-8") as file_obj:
+            json.dump(data, file_obj, ensure_ascii=False, indent=2)
+        engine_cache.pop(filename, None)
+        return {"status": "success", "message": "Workflow created successfully"}
+    except (ValueError, WorkflowValidationError) as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
 
 @app.get("/api/sessions")
 async def list_sessions(workflow_id: str):
-    """获取指定工作流的所有会话列表"""
+    try:
+        workflow_filename = normalize_json_filename(workflow_id, "工作流 ID")
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+
     sessions = []
-    if os.path.exists(SESSIONS_DIR):
-        for file in os.listdir(SESSIONS_DIR):
-            # 兼容旧格式：session_xxx.json 或 default.json
-            # 新格式：workflowId_sessionId.json
-            is_new_format = file.startswith(f"{workflow_id}_")
-            is_old_format = file.startswith("session_") or file == "default.json"
-            
-            if file.endswith('.json') and (is_new_format or is_old_format):
-                session_id = file.replace('.json', '')
-                path = os.path.join(SESSIONS_DIR, file)
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        messages = json.load(f)
-                        # 取第一条用户消息作为会话名称
-                        name = "新对话"
-                        for msg in messages:
-                            if msg['role'] == 'user':
-                                name = msg['content'][:20] + ("..." if len(msg['content']) > 20 else "")
-                                break
-                        
-                        # 如果是旧格式且没有 workflow 前缀，我们暂时允许它显示在当前工作流下
-                        # 或者你可以选择只显示匹配当前 workflow_id 的文件
-                        sessions.append({
-                            "id": session_id,
-                            "name": name,
-                            "messages": messages
-                        })
-                except Exception as e:
-                    print(f"Error loading session {file}: {e}")
-    
-    # 如果没有找到任何会话，返回一个默认的
+    prefix = f"{workflow_filename}_"
+    for file_path in sorted(SESSIONS_DIR.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True):
+        if not file_path.name.startswith(prefix):
+            continue
+        try:
+            with file_path.open("r", encoding="utf-8") as file_obj:
+                messages = normalize_messages(json.load(file_obj))
+            name = "新对话"
+            for message in messages:
+                if message["role"] == "user":
+                    content = message["content"]
+                    name = content[:20] + ("..." if len(content) > 20 else "")
+                    break
+            sessions.append({"id": file_path.stem, "name": name, "messages": messages})
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"Error loading session {file_path.name}: {exc}")
+
     if not sessions:
-        default_id = f"{workflow_id}_default"
         sessions.append({
-            "id": default_id,
+            "id": f"{workflow_filename}_default",
             "name": "默认对话",
-            "messages": []
+            "messages": [],
         })
-        
     return {"status": "success", "sessions": sessions}
+
+
+@app.post("/api/chat/{request_id}/cancel")
+async def cancel_chat(request_id: str):
+    if not REQUEST_ID_PATTERN.fullmatch(request_id):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "无效的 request_id"},
+        )
+    task = active_chat_tasks.get(request_id)
+    if task is None or task.done():
+        return {"status": "not_found", "message": "任务已结束或不存在"}
+    task.cancel()
+    return {"status": "success", "message": "取消信号已发送"}
+
 
 @app.post("/api/chat")
 async def chat_endpoint(request: ChatRequest):
-    """
-    处理前端的聊天请求，调用工作流引擎并返回结果
-    """
-    try:
-        # 确保 session_id 包含 workflow_id 前缀以区分不同工作流的会话
-        full_session_id = request.session_id
-        if not full_session_id.startswith(f"{request.workflow_id}_"):
-            full_session_id = f"{request.workflow_id}_{request.session_id}"
-
-        print(f"\n🔄 接收到前端请求: {request.query}, Workflow: {request.workflow_id}, Session: {full_session_id}")
-        
-        # 1. 获取或初始化该 Session 的记忆
-        messages = load_session_memory(full_session_id)
-        
-        # 2. 将当前用户输入加入记忆
-        messages.append({"role": "user", "content": request.query})
-        
-        engine = get_engine(request.workflow_id)
-        
-        # 3. 传入记忆上下文启动工作流 (已改为纯异步调用)
-        final_global_state = await engine.run(
-            start_node_id="start_node",
-            start_port_id="out_query",
-            initial_data=request.query,
-            history=messages
+    request_id = request.request_id or uuid4().hex
+    if not REQUEST_ID_PATTERN.fullmatch(request_id):
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "无效的 request_id"},
         )
-        
-        # 获取结果
-        # 兼容查找：寻找任何以 end_node: 开头的键
-        final_result = "未找到结果"
-        for key, val in final_global_state.items():
-            if key.startswith("end_node:") and key != "end_node:system_message":
-                final_result = val
-                break
-        
-        # 4. 将助手回答加入记忆并保存
-        messages.append({"role": "assistant", "content": final_result})
-        save_session_memory(full_session_id, messages)
-        
-        print(f"✅ 工作流处理完毕，返回结果长度: {len(str(final_result))}")
-        return {"status": "success", "result": final_result}
-        
-    except Exception as e:
-        print(f"❌ API 执行过程中出现错误: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
-# Serve static files (put this last to avoid overriding API routes)
-if os.path.exists(FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+    current_task = asyncio.current_task()
+    if request_id in active_chat_tasks:
+        return JSONResponse(
+            status_code=409,
+            content={"status": "error", "message": "request_id 已在使用"},
+        )
+    active_chat_tasks[request_id] = current_task
+
+    try:
+        workflow_filename = normalize_json_filename(request.workflow_id, "工作流 ID")
+        raw_session_id = request.session_id.strip() or "default"
+        prefix = f"{workflow_filename}_"
+        full_session_id = (
+            raw_session_id if raw_session_id.startswith(prefix) else f"{prefix}{raw_session_id}"
+        )
+        # 仅用于校验；load/save 时会再次校验并构造路径。
+        safe_json_path(SESSIONS_DIR, full_session_id, "会话 ID")
+
+        async with get_session_lock(full_session_id):
+            history = load_session_memory(full_session_id)
+            engine = get_engine(workflow_filename)
+            final_state = await engine.run(
+                initial_data=request.query,
+                history=history,
+                workflow_id=workflow_filename,
+                session_id=full_session_id,
+            )
+            final_result = final_state["_result"]
+            if not isinstance(final_result, str):
+                final_result = json.dumps(final_result, ensure_ascii=False)
+
+            messages = history + [
+                {"id": uuid4().hex, "role": "user", "content": request.query},
+                {"id": uuid4().hex, "role": "assistant", "content": final_result},
+            ]
+            save_session_memory(full_session_id, messages)
+            return {
+                "status": "success",
+                "result": final_result,
+                "request_id": request_id,
+            }
+    except asyncio.CancelledError:
+        print(f"请求 {request_id} 已取消")
+        raise
+    except (ValueError, FileNotFoundError, WorkflowValidationError) as exc:
+        return JSONResponse(status_code=400, content={"status": "error", "message": str(exc)})
+    except Exception as exc:
+        import traceback
+
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(exc)})
+    finally:
+        if active_chat_tasks.get(request_id) is current_task:
+            active_chat_tasks.pop(request_id, None)
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                return await super().get_response("index.html", scope)
+            raise
+        if response.status_code == 404:
+            return await super().get_response("index.html", scope)
+        return response
+
+
+if FRONTEND_DIR.exists():
+    app.mount("/", SPAStaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+
 
 if __name__ == "__main__":
     import uvicorn
-    print("\n🚀 ========================================================")
-    print("🚀 启动 FastAPI 服务中...")
-    print("🚀 前端访问地址: http://127.0.0.1:8000")
-    print("🚀 ========================================================\n")
-    uvicorn.run("server:app", host="127.0.0.1", port=8000, reload=True)
+
+    port = int(os.environ.get("PORT", "8000"))
+    print(f"\n前端访问地址: http://127.0.0.1:{port}")
+    uvicorn.run("server:app", host="127.0.0.1", port=port, reload=True)

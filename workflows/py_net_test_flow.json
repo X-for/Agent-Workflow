@@ -1,4 +1,37 @@
 {
+  "workflow_id": "py_net_test_flow",
+  "name": "Python 网络连通性测试",
+  "description": "执行受控 Python 网络探测并直接返回执行结果。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 80, "y": 240 },
+      "output_ports": [
+        { "id": "out_query", "description": "触发测试的用户输入" }
+      ]
+    },
+    {
+      "id": "py",
+      "type": "AGENT",
+      "ref": "py_net_test.json",
+      "position": { "x": 400, "y": 240 },
+      "input_ports": [
+        { "id": "in", "name": "测试指令" }
+      ],
+      "output_ports": [
+        { "id": "out", "description": "网络测试结果" }
+      ]
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 740, "y": 240 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
   "connections": [
     {
       "source_node": "start_node",
@@ -12,30 +45,5 @@
       "target_node": "end_node",
       "target_port": "in_result"
     }
-  ],
-  "nodes": [
-    {
-      "id": "start_node",
-      "output_ports": [
-        {
-          "id": "out_query"
-        }
-      ],
-      "type": "START"
-    },
-    {
-      "id": "py",
-      "ref": "py_net_test.json"
-    },
-    {
-      "id": "end_node",
-      "input_ports": [
-        {
-          "id": "in_result"
-        }
-      ],
-      "type": "END"
-    }
-  ],
-  "workflow_id": "py_net_test_flow"
+  ]
 }

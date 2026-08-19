@@ -1,4 +1,51 @@
 {
+  "workflow_id": "multi_port_demo",
+  "name": "多端口拆分与汇聚演示",
+  "description": "将一个问题并行拆分为概念解释和最小示例，再汇聚为最终答案。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 80, "y": 280 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户原始问题" }
+      ]
+    },
+    {
+      "id": "splitter",
+      "type": "AGENT",
+      "ref": "multi_port_splitter.json",
+      "position": { "x": 360, "y": 280 },
+      "input_ports": [
+        { "id": "user_query", "name": "用户问题" }
+      ],
+      "output_ports": [
+        { "id": "a", "description": "概念解释" },
+        { "id": "b", "description": "最小示例" }
+      ]
+    },
+    {
+      "id": "joiner",
+      "type": "AGENT",
+      "ref": "multi_port_joiner.json",
+      "position": { "x": 720, "y": 280 },
+      "input_ports": [
+        { "id": "a_in", "name": "概念解释" },
+        { "id": "b_in", "name": "最小示例" }
+      ],
+      "output_ports": [
+        { "id": "final", "description": "合并后的最终答案" }
+      ]
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1050, "y": 280 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
   "connections": [
     {
       "source_node": "start_node",
@@ -24,34 +71,5 @@
       "target_node": "end_node",
       "target_port": "in_result"
     }
-  ],
-  "nodes": [
-    {
-      "id": "start_node",
-      "output_ports": [
-        {
-          "id": "out_query"
-        }
-      ],
-      "type": "START"
-    },
-    {
-      "id": "splitter",
-      "ref": "multi_port_splitter.json"
-    },
-    {
-      "id": "joiner",
-      "ref": "multi_port_joiner.json"
-    },
-    {
-      "id": "end_node",
-      "input_ports": [
-        {
-          "id": "in_result"
-        }
-      ],
-      "type": "END"
-    }
-  ],
-  "workflow_id": "multi_port_demo"
+  ]
 }

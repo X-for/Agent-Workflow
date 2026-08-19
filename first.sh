@@ -1,39 +1,52 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Linux/macOS 第一次设置脚本
+set -euo pipefail
+
+PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$PROJECT_ROOT"
+
 echo "=== Agent Workflow 第一次设置脚本 ==="
 
-# 检查 npm 是否安装，因为前端需要
-if ! command -v npm &> /dev/null; then
-    echo "[警告] 未检测到 npm。请先安装 Node.js 和 npm 后再运行前端。"
-else
-    echo "1. 安装前端依赖..."
-    if [ -d "frontend" ]; then
-        cd frontend
-        npm install
-        cd ..
-    else
-        echo "[错误] 未找到 frontend 目录！"
-    fi
+if ! command -v npm >/dev/null 2>&1; then
+    echo "[错误] 未检测到 npm，请先安装 Node.js 和 npm。" >&2
+    exit 1
+fi
+if ! command -v uv >/dev/null 2>&1; then
+    echo "[错误] 未检测到 uv，请先安装 uv。" >&2
+    exit 1
 fi
 
-# 安装 uv (Python 包管理器)
-echo "2. 检查并安装 uv..."
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    source $HOME/.cargo/env || true
-    export PATH="$HOME/.cargo/bin:$PATH"
+echo "1. 按锁文件安装前端依赖..."
+npm --prefix frontend ci
+
+echo "2. 按锁文件同步后端依赖..."
+uv sync --locked
+
+echo "3. 初始化项目目录和配置..."
+mkdir -p workflows workspaces chats sessions nodes
+
+if [[ ! -f .env ]]; then
+    PROJECTS_DIR="$(dirname "$PROJECT_ROOT")"
+    umask 077
+    cat >.env <<EOF
+USER_NAME=${USER:-user}
+BASE_DIR="$PROJECT_ROOT"
+WORKFLOW_DIR="$PROJECT_ROOT/workflows"
+WORKSPACE_DIR="$PROJECT_ROOT/workspaces"
+CHAT_DIR="$PROJECT_ROOT/chats"
+SESSIONS_DIR="$PROJECT_ROOT/sessions"
+NODES_DIR="$PROJECT_ROOT/nodes"
+FRONTEND_DIR="$PROJECT_ROOT/frontend/dist"
+PROJECTS_DIR="$PROJECTS_DIR"
+LOG_LEVEL=INFO
+DEEPSEEK_API_KEY=
+OPENROUTER_API_KEY=
+OPENAI_API_KEY=
+EOF
+    echo "已生成 .env，请在启动前填写所需的 API Key。"
 else
-    echo "uv 已安装，跳过。"
+    echo ".env 已存在，未覆盖现有配置。"
 fi
-
-# 同步依赖
-echo "3. 同步后端依赖..."
-uv sync
-
-# 运行初始化脚本
-echo "4. 初始化项目配置..."
-uv run python first.py
 
 echo "=== 设置完成！ ==="
 echo "后端启动: cd backend && uv run uvicorn server:app --reload"

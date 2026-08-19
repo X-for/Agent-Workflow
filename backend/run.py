@@ -1,4 +1,5 @@
-import os 
+import asyncio
+import os
 from Graph import GraphEngine
 from tools import web_search, get_content_from_url
 
@@ -9,7 +10,8 @@ tool_registry = {
 
 # 2. 从 JSON 文件直接加载整个图网络
 if __name__ == "__main__":
-    workflow_config_path = os.path.join(os.environ.get("BASE_DIR"), os.environ.get("WORKFLOW_DIR", "workflow_config.json"))
+    base_dir = os.environ.get("BASE_DIR", os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    workflow_config_path = os.environ.get("WORKFLOW_DIR", os.path.join(base_dir, "workflows"))
     test = os.path.join(workflow_config_path, "test.json")
     engine = GraphEngine(test, tool_registry)
     
@@ -32,18 +34,16 @@ if __name__ == "__main__":
         try:
             # 运行工作流
             print(f"\n正在处理: {user_input}")
-            final_global_state = engine.run(
-                start_node_id="start_node",
-                start_port_id="out_query",
+            final_global_state = asyncio.run(engine.run(
                 initial_data=user_input
-            )
+            ))
             
             # 提取并显示结果
             print("\n" + "="*50)
             print("工作流最终输出的总结报告：")
             print("="*50)
             # 通过 节点名:端口名 提取包裹
-            final_result = final_global_state.get("end_node:text_output", "未找到结果")
+            final_result = final_global_state.get("_result", "未找到结果")
             print(final_result)
             print("\n" + "-"*50 + "\n")
             

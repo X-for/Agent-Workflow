@@ -1,0 +1,100 @@
+{
+  "workflow_id": "content_creation_pipeline",
+  "name": "内容创作流水线",
+  "description": "从内容策划、初稿撰写、独立审校到最终定稿的完整创作流程。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 60, "y": 300 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户内容需求" }
+      ]
+    },
+    {
+      "id": "content_planner",
+      "type": "AGENT",
+      "name": "内容策划师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是内容策划师。提炼创作目标、受众、发布场景、核心信息、语气、篇幅、结构、禁区和成功标准。不要提前写完整正文。将详细写作简报投递到【writing_brief】，将审校标准投递到【editorial_criteria】，将最终交付要求投递到【publication_goal】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "content_request", "name": "内容需求" }
+      ],
+      "output_ports": [
+        { "id": "writing_brief", "description": "供撰稿人使用的详细简报" },
+        { "id": "editorial_criteria", "description": "供审校节点使用的检查标准" },
+        { "id": "publication_goal", "description": "供定稿节点核对的交付要求" }
+      ],
+      "position": { "x": 350, "y": 300 }
+    },
+    {
+      "id": "content_writer",
+      "type": "AGENT",
+      "name": "内容撰稿人",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是专业撰稿人。严格依据写作简报完成内容初稿，优先保证信息层级、逻辑、受众适配和语气一致。不要虚构事实或引用；信息不足时使用明确占位说明。将完整初稿只投递到【draft_content】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "writing_brief", "name": "写作简报" }
+      ],
+      "output_ports": [
+        { "id": "draft_content", "description": "完整内容初稿" }
+      ],
+      "position": { "x": 700, "y": 180 }
+    },
+    {
+      "id": "content_editor",
+      "type": "AGENT",
+      "name": "内容审校员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是独立内容审校员。依据审校标准检查事实边界、结构、逻辑、语法、术语、风格一致性、重复和潜在歧义。直接修订可以确定的问题，不要引入新事实；无法确定处保留清晰标记。将审校后的完整内容只投递到【edited_content】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "editorial_criteria", "name": "审校标准" },
+        { "id": "draft_content", "name": "内容初稿" }
+      ],
+      "output_ports": [
+        { "id": "edited_content", "description": "审校后的完整内容" }
+      ],
+      "position": { "x": 1040, "y": 300 }
+    },
+    {
+      "id": "content_finalizer",
+      "type": "AGENT",
+      "name": "内容定稿员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是内容定稿员。根据最终交付要求检查审校稿的标题、格式、长度、行动指引和发布完整性，做最后的轻量整理。不要重新扩写主题或引入未经核验的事实。输出可直接交付的最终内容，只投递到【final_content】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "publication_goal", "name": "交付要求" },
+        { "id": "edited_content", "name": "审校稿" }
+      ],
+      "output_ports": [
+        { "id": "final_content", "description": "可直接交付的最终内容" }
+      ],
+      "position": { "x": 1380, "y": 300 }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1720, "y": 300 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
+  "connections": [
+    { "source_node": "start_node", "source_port": "out_query", "target_node": "content_planner", "target_port": "content_request" },
+    { "source_node": "content_planner", "source_port": "writing_brief", "target_node": "content_writer", "target_port": "writing_brief" },
+    { "source_node": "content_planner", "source_port": "editorial_criteria", "target_node": "content_editor", "target_port": "editorial_criteria" },
+    { "source_node": "content_planner", "source_port": "publication_goal", "target_node": "content_finalizer", "target_port": "publication_goal" },
+    { "source_node": "content_writer", "source_port": "draft_content", "target_node": "content_editor", "target_port": "draft_content" },
+    { "source_node": "content_editor", "source_port": "edited_content", "target_node": "content_finalizer", "target_port": "edited_content" },
+    { "source_node": "content_finalizer", "source_port": "final_content", "target_node": "end_node", "target_port": "in_result" }
+  ]
+}

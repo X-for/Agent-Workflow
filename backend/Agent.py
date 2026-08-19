@@ -1,9 +1,10 @@
 import json
 import os
+from pathlib import Path
+from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
-from pydantic import SecretStr
 from dotenv import load_dotenv
 
 load_dotenv()  # 加载环境变量
@@ -11,8 +12,14 @@ load_dotenv()  # 加载环境变量
 
 
 
-AGENT_CONFIG_DIR = os.environ.get("AGENT_CONFIG_DIR", "./nodes")
-BASEDIR = os.environ.get("BASE_DIR", ".")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BASEDIR = Path(os.environ.get("BASE_DIR", PROJECT_ROOT)).resolve()
+AGENT_CONFIG_DIR = Path(os.environ.get(
+    "AGENT_CONFIG_DIR",
+    os.environ.get("NODES_DIR", BASEDIR / "nodes"),
+))
+if not AGENT_CONFIG_DIR.is_absolute():
+    AGENT_CONFIG_DIR = (BASEDIR / AGENT_CONFIG_DIR).resolve()
 USER_NAME = os.environ.get("USER", "")
 
 class Node:
@@ -32,12 +39,23 @@ class Node:
         raise NotImplementedError("子类必须实现 node_func 方法")
 
 class AgentNode(Node):
-    def __init__(self, config_path: str | dict, tool_registry: dict = None, node_type: str = "AGENT"):
+    def __init__(
+        self,
+        config_path: str | dict,
+        tool_registry: dict = None,
+        node_type: str = "AGENT",
+        llm=None,
+    ):
         super().__init__(node_type)
         if isinstance(config_path, str) and config_path.endswith('.json'):
             self.cfg = self._load_node_file(config_path)
         else:
-            self.cfg = config_path
+            self.cfg = dict(config_path or {})
+            ref = self.cfg.get("ref")
+            if ref:
+                template_cfg = self._load_node_file(ref)
+                # 工作流内的配置具有更高优先级，允许安全地覆盖模板端口和模型参数。
+                self.cfg = {**template_cfg, **self.cfg}
         self.name = self.cfg.get('name', 'AgentNode')
 
         # 数据流动端口
@@ -61,30 +79,21 @@ class AgentNode(Node):
         else:
             api_env_key = self.cfg.get("api", "DEEPSEEK_API_KEY")
             
-        api_key = os.environ.get(api_env_key)
-        if not api_key:
-            print(f"⚠️ 警告: 节点 [{self.name}] 试图使用的 API Key ({api_env_key}) 在环境变量中为空或未设置！")
-            # 为防止 LangChain 抛出致命异常，当拿不到 key 时提供一个假 key
-            # 但真实的 API 请求仍然会失败（被服务商拒绝），这样能保证服务不崩，只会将错误优雅地传递给前端
-            api_key = "dummy_key_please_set_environment_variable"
-
-        # 初始化llm
-        # 1. 初始化 LLM
-        # 如果是 OpenRouter，需要去掉 max_tokens 参数，或者设置一个小一点的默认值
-        llm_kwargs = {
-            "model": self.model_name,
-            "api_key": api_key,
-            "base_url": base_url,
-            "temperature": self.cfg.get("temperature", 0.1)
-        }
-        
-        # 很多第三方平台（特别是 OpenRouter）对 max_tokens 有严格的信用额度限制
-        # 如果我们在初始化时不传，LangChain 默认可能会传一个很大的值，导致报错 402
-        if "openrouter" in base_url.lower():
-            # 为 OpenRouter 显式设置一个较小且安全的 max_tokens，避免超出免费/基础账户额度
-            llm_kwargs["max_tokens"] = self.cfg.get("max_tokens", 4096)
-            
-        llm = ChatOpenAI(**llm_kwargs)
+        if llm is None:
+            api_key = os.environ.get(api_env_key)
+            if not api_key:
+                print(f"警告: 节点 [{self.name}] 使用的 API Key ({api_env_key}) 未设置")
+                # 保持服务可启动；真实请求会由服务商返回鉴权错误并进入节点失败路径。
+                api_key = "dummy_key_please_set_environment_variable"
+            llm_kwargs = {
+                "model": self.model_name,
+                "api_key": api_key,
+                "base_url": base_url,
+                "temperature": self.cfg.get("temperature", 0.1),
+            }
+            if self.cfg.get("max_tokens") is not None:
+                llm_kwargs["max_tokens"] = self.cfg["max_tokens"]
+            llm = ChatOpenAI(**llm_kwargs)
 
         self.tools_map = {}
         actual_tools = []
@@ -97,18 +106,79 @@ class AgentNode(Node):
         
         print(f"[{self.name}] 实际挂载的工具列表: {list(self.tools_map.keys())}")
         
-        if actual_tools:
+        if actual_tools and hasattr(llm, "bind_tools"):
             self.llm = llm.bind_tools(actual_tools)
         else:
             self.llm = llm
 
     def _load_node_file(self, file_path: str) -> dict:
         """从独立保存的文件中读取节点配置"""
-        file_path = os.path.join(BASEDIR, AGENT_CONFIG_DIR, file_path)
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"找不到独立的节点配置文件: {file_path}")
-        with open(file_path, 'r', encoding='utf-8') as f:
+        target = Path(file_path)
+        if not target.is_absolute():
+            target = (AGENT_CONFIG_DIR / target).resolve()
+        try:
+            target.relative_to(AGENT_CONFIG_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError(f"节点模板路径越出配置目录: {file_path}") from exc
+        if not target.exists():
+            raise FileNotFoundError(f"找不到独立的节点配置文件: {target}")
+        with target.open('r', encoding='utf-8') as f:
             return json.load(f)
+
+    @staticmethod
+    def _content_to_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            return "\n".join(parts)
+        if content is None:
+            return ""
+        return str(content)
+
+    def _parse_deliveries(self, final_answer: str) -> tuple[list[dict], str]:
+        stripped = final_answer.strip()
+        if stripped.startswith("```json") and stripped.endswith("```"):
+            stripped = stripped[7:-3].strip()
+        elif stripped.startswith("```") and stripped.endswith("```"):
+            stripped = stripped[3:-3].strip()
+
+        decision = json.loads(stripped)
+        if not isinstance(decision, dict):
+            raise ValueError("路由结果必须是 JSON 对象")
+        deliveries = decision.get("deliveries")
+        if not isinstance(deliveries, list):
+            raise ValueError("路由结果缺少 deliveries 数组")
+
+        allowed_ports = {port.get("id") for port in self.output_ports if port.get("id")}
+        outputs = []
+        for delivery in deliveries:
+            if not isinstance(delivery, dict):
+                raise ValueError("deliveries 中的元素必须是对象")
+            target_port = delivery.get("target_port")
+            if target_port not in allowed_ports:
+                outputs.append({
+                    "port_id": target_port,
+                    "port_status": "fallback",
+                    "payload": delivery.get("payload", ""),
+                    "ui_show": False,
+                    "fallback_to_end": True,
+                    "fallback_reason": f"模型选择了未声明的输出端口: {target_port}",
+                })
+                continue
+            outputs.append({
+                "port_id": target_port,
+                "port_status": "success",
+                "payload": delivery.get("payload", ""),
+                "ui_show": False,
+            })
+        console_message = str(decision.get("console_msg", f"[{self.name}] 任务执行完毕"))
+        return outputs, console_message
 
     async def node_func(self, state: dict) -> dict:
         """
@@ -179,20 +249,19 @@ class AgentNode(Node):
         messages.append(HumanMessage(content=f"请根据以下输入执行任务：\n{combined_input}"))
 
         # --- 步骤 3：内部微型 Agent Loop (自主调用工具并收集结果) ---
-        max_iterations = 10  # 防止大模型内部死循环的物理限制
-        iteration = 0
+        max_iterations = int(self.cfg.get("max_tool_iterations", 10))
+        final_response = None
 
-        while iteration < max_iterations:
-            iteration += 1
+        for _ in range(max_iterations):
             response = await self.llm.ainvoke(messages)
             messages.append(response)
 
-            # 如果大模型没有要求调用工具，说明它已经得出了最终结论，退出内循环！
-            if not response.tool_calls:
+            tool_calls = getattr(response, "tool_calls", None) or []
+            if not tool_calls:
+                final_response = response
                 break
 
-            # 执行大模型请求的工具
-            for tool_call in response.tool_calls:
+            for tool_call in tool_calls:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
                 tool_id = tool_call["id"]
@@ -222,36 +291,28 @@ class AgentNode(Node):
                 # 将工具执行结果作为 ToolMessage 塞回历史记录，供大模型下一步判断
                 messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
 
+        if final_response is None:
+            raise RuntimeError(
+                f"节点在 {max_iterations} 轮工具调用后仍未生成最终答案，已停止执行"
+            )
+
         # --- 步骤 4：解析多端口分发列表，并封装为标准协议 ---
-        final_answer = response.content
+        final_answer = self._content_to_text(final_response.content)
         outputs_list = []
         console_message = f"[{self.name}] 任务执行完毕"
         
         try:
-            clean_json_str = final_answer.replace("```json", "").replace("```", "").strip()
-            decision = json.loads(clean_json_str)
-            
-            #【核心修复】：遍历解析 deliveries 数组，实现多路并发分发
-            if "deliveries" in decision and isinstance(decision["deliveries"], list):
-                for delivery in decision["deliveries"]:
-                    outputs_list.append({
-                        "port_id": delivery.get("target_port", "default_out"),
-                        "port_status": "success",
-                        "payload": delivery.get("payload", ""),
-                        "ui_show": False
-                    })
-                    
-            if "console_msg" in decision:
-                console_message = f"[{self.name}]: {decision['console_msg']}"
-                
-        except json.JSONDecodeError:
-            print(f"[{self.name}] 警告：未输出规范的路由 JSON，触发降级默认投递。")
-            default_port = self.output_ports[0]["id"] if self.output_ports else "default_out"
+            outputs_list, console_message = self._parse_deliveries(final_answer)
+            console_message = f"[{self.name}]: {console_message}"
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            print(f"[{self.name}] 警告：路由结果无效（{exc}），降级投递到 END 节点。")
             outputs_list.append({
-                "port_id": default_port,
-                "port_status": "success",
+                "port_id": None,
+                "port_status": "fallback",
                 "payload": final_answer,
-                "ui_show": False
+                "ui_show": False,
+                "fallback_to_end": True,
+                "fallback_reason": f"路由结果无效: {exc}",
             })
             console_message = f"[{self.name}]: {final_answer[:50]}..."
 
@@ -278,7 +339,7 @@ class AgentNode(Node):
         return {
             "latest_node_output": agent_output
         }
-    
+
 class StartNode(Node):
     def __init__(self, config_path: str | dict = None):
         super().__init__("START")
@@ -297,10 +358,14 @@ class StartNode(Node):
 
     def _load_node_file(self, file_path: str) -> dict:
         """从独立保存的文件中读取节点配置"""
-        file_path = os.path.join(BASEDIR, AGENT_CONFIG_DIR, file_path)
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"找不到独立的节点配置文件: {file_path}")
-        with open(file_path, 'r', encoding='utf-8') as f:
+        target = (AGENT_CONFIG_DIR / file_path).resolve()
+        try:
+            target.relative_to(AGENT_CONFIG_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError(f"节点模板路径越出配置目录: {file_path}") from exc
+        if not target.exists():
+            raise FileNotFoundError(f"找不到独立的节点配置文件: {target}")
+        with target.open('r', encoding='utf-8') as f:
             return json.load(f)
 
     def node_func(self, state: dict) -> dict:
@@ -377,10 +442,14 @@ class EndNode(Node):
 
     def _load_node_file(self, file_path: str) -> dict:
         """从独立保存的文件中读取节点配置"""
-        file_path = os.path.join(BASEDIR, AGENT_CONFIG_DIR, file_path)
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"找不到独立的节点配置文件: {file_path}")
-        with open(file_path, 'r', encoding='utf-8') as f:
+        target = (AGENT_CONFIG_DIR / file_path).resolve()
+        try:
+            target.relative_to(AGENT_CONFIG_DIR.resolve())
+        except ValueError as exc:
+            raise ValueError(f"节点模板路径越出配置目录: {file_path}") from exc
+        if not target.exists():
+            raise FileNotFoundError(f"找不到独立的节点配置文件: {target}")
+        with target.open('r', encoding='utf-8') as f:
             return json.load(f)
 
     def node_func(self, state: dict) -> dict:
@@ -441,7 +510,7 @@ class EndNode(Node):
         return {
             "latest_node_output": node_output
         }
-    
+
     def _parse_to_text(self, result):
         """
         将最终结果解析为文本
@@ -479,5 +548,3 @@ class SystemNode:
                 "outputs": []
             }
         }
-
-    

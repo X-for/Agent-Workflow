@@ -8,16 +8,32 @@ import subprocess
 load_dotenv()
 
 # 1. 增强环境变量的容错：提供默认路径
-WORKSPACE_DIR = os.environ.get("WORKSPACE_DIR", "./workspace")
+WORKSPACE_DIR = os.path.abspath(os.environ.get(
+    "WORKSPACE_DIR",
+    os.path.join(os.path.dirname(__file__), "..", "..", "workspaces"),
+))
+
+
+def _ensure_within(base_dir: str, target_path: str, label: str = "路径") -> str:
+    base = os.path.abspath(base_dir)
+    target = os.path.abspath(target_path)
+    try:
+        if os.path.commonpath([base, target]) != base:
+            raise ValueError(f"安全警告: {label}越出允许目录")
+    except ValueError as exc:
+        raise ValueError(f"安全警告: {label}越出允许目录") from exc
+    return target
 
 
 def get_safe_task_dir(config: RunnableConfig) -> str:
     """内部辅助函数：安全地获取当前任务的工作目录"""
     # 增强 config 解析容错，默认分配一个 "default_task" 文件夹
     configurable = config.get("configurable", {})
-    thread_id = configurable.get("thread_id", "default_task")
+    thread_id = str(configurable.get("thread_id", "default_task"))
+    if thread_id in {".", ".."} or os.path.basename(thread_id) != thread_id:
+        raise ValueError("thread_id 包含非法路径字符")
 
-    task_dir = os.path.abspath(os.path.join(WORKSPACE_DIR, thread_id))
+    task_dir = _ensure_within(WORKSPACE_DIR, os.path.join(WORKSPACE_DIR, thread_id), "任务目录")
     if not os.path.exists(task_dir):
         os.makedirs(task_dir, exist_ok=True)
     return task_dir
@@ -27,10 +43,7 @@ def get_safe_file_path(task_dir: str, file_path: str) -> str:
     """内部辅助函数：防止路径穿越攻击 (Path Traversal)"""
     # 将用户输入的路径转换为绝对路径
     absolute_path = os.path.abspath(os.path.join(task_dir, file_path))
-    # 检查最终路径是否仍然以 task_dir 开头，如果不是，说明发生了路径穿越 (如输入了 ../../)
-    if not absolute_path.startswith(task_dir):
-        raise ValueError(f"安全警告: 拒绝访问工作区外的文件 ({file_path})")
-    return absolute_path
+    return _ensure_within(task_dir, absolute_path, f"文件 {file_path}")
 
 
 @tool
@@ -113,6 +126,10 @@ def list_files_in_directory(config: RunnableConfig) -> str:
 PROJECT_ROOT = os.environ.get("PROJECTS_DIR", WORKSPACE_DIR)
 
 
+def _ensure_project_path(path: str) -> str:
+    return _ensure_within(PROJECT_ROOT, path, "项目路径")
+
+
 @tool
 @log
 def search_project() -> str:
@@ -123,11 +140,11 @@ def search_project() -> str:
         # 获取所有文件夹名
         projects = next(os.walk(PROJECT_ROOT))[1]
         # 【修复1】：明确告诉大模型根目录地址，让它自己去拼接绝对路径
-        return (f"✅ 当前工作区绝对路径为: {PROJECT_ROOT}\n"
+        return (f"当前工作区绝对路径为: {PROJECT_ROOT}\n"
                 f"包含以下项目目录: {projects}\n"
-                f"⚠️ 提示：调用后续工具时，请务必将工作区路径与项目名拼接成完整的绝对路径传入！")
+                f"提示：调用后续工具时，请务必将工作区路径与项目名拼接成完整的绝对路径传入！")
     except StopIteration:
-        return f"❌ 无法读取目录: {PROJECT_ROOT}"
+        return f"无法读取目录: {PROJECT_ROOT}"
 
 
 @tool
@@ -143,10 +160,14 @@ def get_project_structure(absolute_path: str, max_depth: int = 3, special_files:
     - max_depth: 最大向下遍历的层级深度（默认 3 层）
     - special_files: 可选的特殊文件列表，如果提供了这个参数，函数就会将这些已经被排除的文件/目录重新包含在结果中
     """
+    try:
+        absolute_path = _ensure_project_path(absolute_path)
+    except ValueError as exc:
+        return str(exc)
     if not special_files:
         special_files = []
     if not os.path.exists(absolute_path):
-        return f"❌ 找不到目录: {absolute_path}"
+        return f"找不到目录: {absolute_path}"
 
     # 定义要无情排除的垃圾目录和文件后缀
     EXCLUDE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', '.venv', 'env', '.idea', '.vscode'}
@@ -196,8 +217,9 @@ def get_project_structure(absolute_path: str, max_depth: int = 3, special_files:
 def read_local_file(absolute_file_path: str, start_line: int = 1, end_line: int = None) -> str:
     """读取文件的具体内容。必须传入完整的 absolute_file_path。"""
     try:
+        absolute_file_path = _ensure_project_path(absolute_file_path)
         if not os.path.exists(absolute_file_path):
-            return f"❌ 找不到文件 {absolute_file_path}"
+            return f"找不到文件 {absolute_file_path}"
         with open(absolute_file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         
@@ -205,15 +227,19 @@ def read_local_file(absolute_file_path: str, start_line: int = 1, end_line: int 
         result = [f"{i + 1} | {lines[i].rstrip()}" for i in range(start_line - 1, min(end_line, len(lines)))]
         return "\n".join(result)
     except Exception as e:
-        return f"❌ 读取失败: {e}"
+        return f"读取失败: {e}"
 
 
 @tool
 @log
 def search_code(keyword: str, absolute_directory: str, special_files: list=None) -> str:
     """在指定的项目绝对路径下搜索代码关键词。支持全文件类型搜索，自动过滤无用目录。"""
+    try:
+        absolute_directory = _ensure_project_path(absolute_directory)
+    except ValueError as exc:
+        return str(exc)
     if not os.path.exists(absolute_directory):
-        return f"❌ 找不到目录 {absolute_directory}"
+        return f"找不到目录 {absolute_directory}"
     
     if not special_files:
         special_files = []
@@ -254,5 +280,3 @@ def search_code(keyword: str, absolute_directory: str, special_files: list=None)
                 pass
                 
     return "\n".join(results) if results else f"未找到包含 '{keyword}' 的代码。"
-
-

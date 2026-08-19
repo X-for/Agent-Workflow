@@ -1,0 +1,113 @@
+{
+  "workflow_id": "data_analysis_pipeline",
+  "name": "数据分析流水线",
+  "description": "读取数据、评估并清洗质量问题、执行分析，最后生成可解释的报告。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 60, "y": 300 },
+      "output_ports": [
+        { "id": "out_query", "description": "数据位置和分析目标" }
+      ]
+    },
+    {
+      "id": "data_reader",
+      "type": "AGENT",
+      "name": "数据读取员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是数据读取与盘点节点。根据用户提供的位置和目标，安全读取文件或数据库结构，识别数据源、字段、类型、规模、时间范围和读取限制。不要修改原始数据。将可供清洗的原始数据摘要投递到【raw_data】，并将同一份数据背景、业务目标和字段解释投递到【report_context】。",
+      "tools": [
+        "read_local_file",
+        "read_document",
+        "list_files_in_directory",
+        "get_database_schema",
+        "execute_sql_query"
+      ],
+      "input_ports": [
+        { "id": "analysis_request", "name": "分析请求" }
+      ],
+      "output_ports": [
+        { "id": "raw_data", "description": "原始数据摘要和访问方式" },
+        { "id": "report_context", "description": "业务目标、字段语义和数据限制" }
+      ],
+      "position": { "x": 350, "y": 300 }
+    },
+    {
+      "id": "data_cleaner",
+      "type": "AGENT",
+      "name": "数据清洗员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是可审计的数据清洗节点。检查缺失值、重复值、类型错误、异常值、编码和时间格式问题；制定保守的清洗规则，并用代码执行必要处理。默认不覆盖原始文件。记录每条规则、受影响数量和可能引入的偏差，将清洗结果与质量报告只投递到【clean_data】。",
+      "tools": [
+        "read_local_file",
+        "execute_python_code",
+        "execute_sql_query",
+        "save_document"
+      ],
+      "input_ports": [
+        { "id": "raw_data", "name": "原始数据" }
+      ],
+      "output_ports": [
+        { "id": "clean_data", "description": "清洗后的数据和质量审计记录" }
+      ],
+      "position": { "x": 700, "y": 180 }
+    },
+    {
+      "id": "data_analyst",
+      "type": "AGENT",
+      "name": "数据分析师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是严谨的数据分析师。依据用户目标和清洗后的数据选择合适的方法，执行描述统计、分组比较、趋势或必要的推断分析。区分相关与因果，检查样本量和方法假设，不得捏造计算结果。输出分析步骤、关键数字、可复现代码、局限性和结论，只投递到【analysis_result】。",
+      "tools": [
+        "execute_python_code",
+        "execute_sql_query",
+        "read_local_file",
+        "get_database_schema"
+      ],
+      "input_ports": [
+        { "id": "clean_data", "name": "清洗数据" }
+      ],
+      "output_ports": [
+        { "id": "analysis_result", "description": "可复现的分析结果" }
+      ],
+      "position": { "x": 1040, "y": 180 }
+    },
+    {
+      "id": "report_writer",
+      "type": "AGENT",
+      "name": "分析报告员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是数据报告撰写人。综合业务背景和实际分析结果，生成面向决策者的报告，包括执行摘要、数据范围、清洗说明、主要发现、重要数字、限制、风险和可执行建议。不得超出分析证据做强结论。最终报告只投递到【final_data_report】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "report_context", "name": "报告背景" },
+        { "id": "analysis_result", "name": "分析结果" }
+      ],
+      "output_ports": [
+        { "id": "final_data_report", "description": "最终数据分析报告" }
+      ],
+      "position": { "x": 1380, "y": 300 }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1720, "y": 300 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
+  "connections": [
+    { "source_node": "start_node", "source_port": "out_query", "target_node": "data_reader", "target_port": "analysis_request" },
+    { "source_node": "data_reader", "source_port": "raw_data", "target_node": "data_cleaner", "target_port": "raw_data" },
+    { "source_node": "data_reader", "source_port": "report_context", "target_node": "report_writer", "target_port": "report_context" },
+    { "source_node": "data_cleaner", "source_port": "clean_data", "target_node": "data_analyst", "target_port": "clean_data" },
+    { "source_node": "data_analyst", "source_port": "analysis_result", "target_node": "report_writer", "target_port": "analysis_result" },
+    { "source_node": "report_writer", "source_port": "final_data_report", "target_node": "end_node", "target_port": "in_result" }
+  ]
+}

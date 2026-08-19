@@ -31,13 +31,86 @@ const nodeTypes = {
 let id = 0
 const getId = () => `node_${id++}`
 
+function validateWorkflow(nodes: FlowNode[], edges: Edge[]): string | null {
+  const nodeIds = new Set(nodes.map(node => node.id))
+  if (nodeIds.size !== nodes.length) return '存在重复的节点 ID，请删除重复节点后重试。'
+
+  const startNodes = nodes.filter(node => node.type === 'START')
+  const endNodes = nodes.filter(node => node.type === 'END')
+  if (startNodes.length !== 1 || endNodes.length !== 1) {
+    return `工作流必须且只能包含一个 START 和一个 END（当前 ${startNodes.length}/${endNodes.length}）。`
+  }
+
+  const adjacency = new Map<string, Set<string>>()
+  const indegree = new Map<string, number>()
+  nodes.forEach(node => {
+    adjacency.set(node.id, new Set())
+    indegree.set(node.id, 0)
+  })
+  const edgeKeys = new Set<string>()
+
+  for (const edge of edges) {
+    const sourceNode = nodes.find(node => node.id === edge.source)
+    const targetNode = nodes.find(node => node.id === edge.target)
+    if (targetNode?.type === 'START') return 'START 节点不能有入边。'
+    if (sourceNode?.type === 'END') return 'END 节点不能有出边。'
+    if (!sourceNode || !targetNode) return `连线 ${edge.id} 引用了不存在的节点。`
+    if (!edge.sourceHandle || !edge.targetHandle) return `连线 ${edge.id} 缺少源端口或目标端口。`
+
+    const outputPorts = (sourceNode.data.output_ports || []) as Array<{ id: string }>
+    const inputPorts = (targetNode.data.input_ports || []) as Array<{ id: string }>
+    if (!outputPorts.some(port => port.id === edge.sourceHandle)) {
+      return `节点 ${edge.source} 不存在输出端口 ${edge.sourceHandle}。`
+    }
+    if (!inputPorts.some(port => port.id === edge.targetHandle)) {
+      return `节点 ${edge.target} 不存在输入端口 ${edge.targetHandle}。`
+    }
+
+    const edgeKey = `${edge.source}:${edge.sourceHandle}->${edge.target}:${edge.targetHandle}`
+    if (edgeKeys.has(edgeKey)) return `存在重复连线：${edgeKey}`
+    edgeKeys.add(edgeKey)
+
+    const targets = adjacency.get(edge.source)!
+    if (!targets.has(edge.target)) {
+      targets.add(edge.target)
+      indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1)
+    }
+  }
+
+  const queue = nodes.filter(node => indegree.get(node.id) === 0).map(node => node.id)
+  let visited = 0
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!
+    visited += 1
+    adjacency.get(nodeId)!.forEach(target => {
+      const nextDegree = (indegree.get(target) || 0) - 1
+      indegree.set(target, nextDegree)
+      if (nextDegree === 0) queue.push(target)
+    })
+  }
+  if (visited !== nodes.length) return '工作流包含环路，当前执行器只支持有向无环图（DAG）。'
+
+  const reachable = new Set<string>()
+  const stack = [startNodes[0].id]
+  while (stack.length > 0) {
+    const nodeId = stack.pop()!
+    if (reachable.has(nodeId)) continue
+    reachable.add(nodeId)
+    adjacency.get(nodeId)!.forEach(target => stack.push(target))
+  }
+  if (!reachable.has(endNodes[0].id)) return 'END 节点无法从 START 节点到达。'
+  const unreachable = nodes.filter(node => !reachable.has(node.id))
+  if (unreachable.length > 0) return `存在无法从 START 到达的节点：${unreachable.map(node => node.id).join(', ')}`
+  return null
+}
+
 export default function Creation() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
   const location = useLocation()
   const { isDarkMode } = useTheme()
-  const [nodes, setNodes, onNodesChange] = useNodesState([])
-  const [edges, setEdges, onEdgesChange] = useEdgesState([])
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([])
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null)
   
   const [filename, setFilename] = useState('new_workflow.json')
@@ -53,14 +126,26 @@ export default function Creation() {
     if (editId) {
       console.log('DEBUG: Fetching workflow for edit:', editId)
       setFilename(editId)
-      axios.get(`/api/workflows/${encodeURIComponent(editId)}`)
-        .then(res => {
+      Promise.all([
+        axios.get(`/api/workflows/${encodeURIComponent(editId)}`),
+        axios.get('/api/nodes')
+      ])
+        .then(([res, nodesRes]) => {
           console.log('DEBUG: Workflow data received:', res.data)
           if (res.data.status === 'success') {
             const wf = res.data.workflow
+            const nodeTemplates = (nodesRes.data.nodes || []) as Array<{
+              ref?: string
+              name?: string
+              input_ports?: Array<Record<string, unknown>>
+              output_ports?: Array<Record<string, unknown>>
+            }>
             
             // 1. 转换节点
             const flowNodes: FlowNode[] = wf.nodes.map((n: any, index: number) => {
+              const template = n.ref
+                ? nodeTemplates.find(candidate => candidate.ref === n.ref)
+                : undefined
               // 修复类型匹配逻辑：
               // 1. 如果有明确的 type (START/END)，直接使用
               // 2. 如果没有 type 但有 ref，说明是通用节点 (AGENT)
@@ -77,11 +162,12 @@ export default function Creation() {
                 type: type,
                 position: n.position || { x: 100 + index * 250, y: 200 },
                 data: {
+                  ...template,
                   ...n,
                   // 确保 label 存在，否则节点可能显示为空白
-                  label: n.name || n.id,
-                  input_ports: n.input_ports || [],
-                  output_ports: n.output_ports || []
+                  label: n.name || template?.name || n.id,
+                  input_ports: n.input_ports || template?.input_ports || [],
+                  output_ports: n.output_ports || template?.output_ports || []
                 }
               }
             })
@@ -133,32 +219,31 @@ export default function Creation() {
   }
 
   const addPort = (nodeId: string, type: 'input' | 'output') => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          const field = type === 'input' ? 'input_ports' : 'output_ports'
-          const currentPorts = node.data[field] || []
-          const newPort = type === 'input' 
-            ? { id: `in_${Date.now()}`, name: '新输入' }
-            : { id: `out_${Date.now()}`, description: '新输出' }
-          return { ...node, data: { ...node.data, [field]: [...currentPorts, newPort] } }
-        }
-        return node
-      })
-    )
+    const field = type === 'input' ? 'input_ports' : 'output_ports'
+    const newPort = type === 'input'
+      ? { id: `in_${Date.now()}`, name: '新输入' }
+      : { id: `out_${Date.now()}`, description: '新输出' }
+    const update = (node: any) => ({
+      ...node,
+      data: { ...node.data, [field]: [...(node.data[field] || []), newPort] }
+    })
+    setNodes(nds => nds.map(node => node.id === nodeId ? update(node) : node))
+    setSelectedNode((current: any) => current?.id === nodeId ? update(current) : current)
   }
 
   const removePort = (nodeId: string, type: 'input' | 'output', portId: string) => {
-    setNodes((nds) =>
-      nds.map((node) => {
-        if (node.id === nodeId) {
-          const field = type === 'input' ? 'input_ports' : 'output_ports'
-          const currentPorts = node.data[field] || []
-          return { ...node, data: { ...node.data, [field]: currentPorts.filter((p: any) => p.id !== portId) } }
-        }
-        return node
-      })
-    )
+    const field = type === 'input' ? 'input_ports' : 'output_ports'
+    const update = (node: any) => ({
+      ...node,
+      data: { ...node.data, [field]: (node.data[field] || []).filter((port: any) => port.id !== portId) }
+    })
+    setNodes(nds => nds.map(node => node.id === nodeId ? update(node) : node))
+    setEdges(eds => eds.filter(edge => (
+      type === 'input'
+        ? !(edge.target === nodeId && edge.targetHandle === portId)
+        : !(edge.source === nodeId && edge.sourceHandle === portId)
+    )))
+    setSelectedNode((current: any) => current?.id === nodeId ? update(current) : current)
   }
 
   const updateNodeData = (nodeId: string, newData: any) => {
@@ -173,7 +258,7 @@ export default function Creation() {
                                  newData.tools !== undefined
         
         let updatedType = node.type
-        let updatedData = { ...node.data, ...newData }
+        const updatedData = { ...node.data, ...newData }
 
         if (isAgent && isModifyingConfig) {
           console.log(`Node ${nodeId} modified, converting from AGENT to CUSTOM_AGENT to protect template.`)
@@ -207,6 +292,10 @@ export default function Creation() {
       if (!typeStr || !reactFlowInstance) return
 
       const nodeTemplate = JSON.parse(typeStr)
+      if ((nodeTemplate.type === 'START' || nodeTemplate.type === 'END') && nodes.some(node => node.type === nodeTemplate.type)) {
+        alert(`工作流只能包含一个 ${nodeTemplate.type} 节点。`)
+        return
+      }
       const position = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
@@ -241,16 +330,13 @@ export default function Creation() {
 
       setNodes((nds) => nds.concat(newNode))
     },
-    [reactFlowInstance, setNodes]
+    [reactFlowInstance, setNodes, nodes]
   )
 
   const saveWorkflow = async () => {
-    // 检查基础节点
-    const startNode = nodes.find(n => n.type === 'START')
-    const endNode = nodes.find(n => n.type === 'END')
-    
-    if (!startNode || !endNode) {
-      alert('保存失败：工作流必须包含一个开始节点(START)和一个结束节点(END)。')
+    const validationError = validateWorkflow(nodes, edges)
+    if (validationError) {
+      alert(`保存失败：${validationError}`)
       return
     }
 
@@ -276,10 +362,14 @@ export default function Creation() {
           baseNode.tools = n.data.tools
           baseNode.input_ports = n.data.input_ports
           baseNode.output_ports = n.data.output_ports
-        } else if (n.type === 'START') {
-        baseNode.output_ports = [{ id: "out_query" }]
+      } else if (n.type === 'START') {
+        baseNode.output_ports = Array.isArray(n.data.output_ports) && n.data.output_ports.length > 0
+          ? n.data.output_ports
+          : [{ id: "out_query" }]
       } else if (n.type === 'END') {
-        baseNode.input_ports = [{ id: "in_result" }]
+        baseNode.input_ports = Array.isArray(n.data.input_ports) && n.data.input_ports.length > 0
+          ? n.data.input_ports
+          : [{ id: "in_result" }]
       }
       
       return baseNode

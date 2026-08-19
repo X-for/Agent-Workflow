@@ -1,37 +1,67 @@
 {
   "workflow_id": "test_search_and_summary",
+  "name": "检索与总结",
+  "description": "先检索相关网页内容，再整理为结构化中文摘要。",
   "nodes": [
     {
       "id": "start_node",
       "type": "START",
-      "output_ports": [{"id": "out_query"}]
+      "position": { "x": 80, "y": 260 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户检索问题" }
+      ]
     },
     {
       "id": "searcher_agent",
-      "ref": "searcher.json" 
+      "type": "AGENT",
+      "ref": "searcher.json",
+      "position": { "x": 380, "y": 260 },
+      "input_ports": [
+        { "id": "user_query", "name": "用户问题" }
+      ],
+      "output_ports": [
+        { "id": "fetched_content", "description": "检索和抓取的原始资料" }
+      ]
     },
     {
       "id": "summarizer_agent",
-      "ref": "summarizer.json"
+      "type": "AGENT",
+      "ref": "summarizer.json",
+      "position": { "x": 720, "y": 260 },
+      "input_ports": [
+        { "id": "raw_content", "name": "原始资料" }
+      ],
+      "output_ports": [
+        { "id": "final_summary", "description": "结构化中文摘要" }
+      ]
     },
     {
       "id": "end_node",
       "type": "END",
-      "input_ports": [{"id": "in_result"}]
+      "position": { "x": 1060, "y": 260 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
     }
   ],
   "connections": [
     {
-      "source_node": "start_node", "source_port": "out_query",
-      "target_node": "searcher_agent", "target_port": "user_query"
+      "source_node": "start_node",
+      "source_port": "out_query",
+      "target_node": "searcher_agent",
+      "target_port": "user_query"
     },
     {
-      "source_node": "searcher_agent", "source_port": "fetched_content",
-      "target_node": "summarizer_agent", "target_port": "raw_content"
+      "source_node": "searcher_agent",
+      "source_port": "fetched_content",
+      "target_node": "summarizer_agent",
+      "target_port": "raw_content"
     },
     {
-      "source_node": "summarizer_agent", "source_port": "final_summary",
-      "target_node": "end_node", "target_port": "in_result"
+      "source_node": "summarizer_agent",
+      "source_port": "final_summary",
+      "target_node": "end_node",
+      "target_port": "in_result"
     }
   ]
 }

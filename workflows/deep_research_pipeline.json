@@ -1,0 +1,103 @@
+{
+  "workflow_id": "deep_research_pipeline",
+  "name": "深度研究流水线",
+  "description": "规划研究问题、检索证据、交叉核验事实并生成带依据的总结。",
+  "nodes": [
+    {
+      "id": "start_node",
+      "type": "START",
+      "position": { "x": 60, "y": 280 },
+      "output_ports": [
+        { "id": "out_query", "description": "用户研究问题" }
+      ]
+    },
+    {
+      "id": "research_planner",
+      "type": "AGENT",
+      "name": "研究规划师",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是深度研究规划师。把用户问题拆成可检索的子问题，定义时间范围、关键术语、优先来源、证据标准和需要核验的核心主张。不要声称已经完成检索。将检索计划投递到【search_plan】，并将独立的核验清单投递到【verification_criteria】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "research_question", "name": "研究问题" }
+      ],
+      "output_ports": [
+        { "id": "search_plan", "description": "可执行的检索计划" },
+        { "id": "verification_criteria", "description": "核心主张和核验标准" }
+      ],
+      "position": { "x": 350, "y": 280 }
+    },
+    {
+      "id": "researcher",
+      "type": "AGENT",
+      "name": "资料检索员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是资料检索员。严格按照检索计划搜索并阅读相关来源，优先原始、权威和时间匹配的资料。清楚区分来源事实与自己的推断，记录来源标题、URL、日期和支持的主张。不得编造来源。将完整证据包只投递到【evidence_package】。",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ],
+      "input_ports": [
+        { "id": "search_plan", "name": "检索计划" }
+      ],
+      "output_ports": [
+        { "id": "evidence_package", "description": "包含来源信息的证据包" }
+      ],
+      "position": { "x": 700, "y": 180 }
+    },
+    {
+      "id": "fact_checker",
+      "type": "AGENT",
+      "name": "事实核验员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是独立事实核验员。根据核验清单逐项检查证据包；对关键主张进行必要的二次检索和交叉来源验证。标注已证实、部分证实、存在争议、无法证实或已过时，并指出证据冲突。不得把缺少证据视为事实。将核验后的材料只投递到【verified_evidence】。",
+      "tools": [
+        "web_search",
+        "get_content_from_url"
+      ],
+      "input_ports": [
+        { "id": "verification_criteria", "name": "核验清单" },
+        { "id": "evidence_package", "name": "待核验证据" }
+      ],
+      "output_ports": [
+        { "id": "verified_evidence", "description": "带可信度标记的核验材料" }
+      ],
+      "position": { "x": 1050, "y": 280 }
+    },
+    {
+      "id": "research_summarizer",
+      "type": "AGENT",
+      "name": "研究总结员",
+      "model_name": "deepseek-chat",
+      "base_url": "https://api.deepseek.com",
+      "system_prompt": "你是研究报告撰写人。只基于核验后的材料回答原研究问题。先给出结论，再组织关键发现、证据、争议、不确定性和后续研究建议；保留可追溯的来源标题与 URL，不得恢复已被核验员否定的主张。最终报告只投递到【final_research_report】。",
+      "tools": [],
+      "input_ports": [
+        { "id": "verified_evidence", "name": "核验材料" }
+      ],
+      "output_ports": [
+        { "id": "final_research_report", "description": "最终深度研究报告" }
+      ],
+      "position": { "x": 1390, "y": 280 }
+    },
+    {
+      "id": "end_node",
+      "type": "END",
+      "position": { "x": 1740, "y": 280 },
+      "input_ports": [
+        { "id": "in_result", "name": "最终结果" }
+      ]
+    }
+  ],
+  "connections": [
+    { "source_node": "start_node", "source_port": "out_query", "target_node": "research_planner", "target_port": "research_question" },
+    { "source_node": "research_planner", "source_port": "search_plan", "target_node": "researcher", "target_port": "search_plan" },
+    { "source_node": "research_planner", "source_port": "verification_criteria", "target_node": "fact_checker", "target_port": "verification_criteria" },
+    { "source_node": "researcher", "source_port": "evidence_package", "target_node": "fact_checker", "target_port": "evidence_package" },
+    { "source_node": "fact_checker", "source_port": "verified_evidence", "target_node": "research_summarizer", "target_port": "verified_evidence" },
+    { "source_node": "research_summarizer", "source_port": "final_research_report", "target_node": "end_node", "target_port": "in_result" }
+  ]
+}
